@@ -206,13 +206,31 @@ while IFS= read -r file; do
       done
       (( body_depth < 0 )) && body_depth=0
 
+      # Skip the rest of the awaited statement: a multi-line argument list holds
+      # callbacks (dialog builders, onPressed) that run inside the call, not after it.
+      scan_from=$((i + 1))
+      p_open="${line//[^(]/}"
+      p_close="${line//[^)]/}"
+      paren=$(( ${#p_open} - ${#p_close} ))
+      if (( paren > 0 )); then
+        for ((j=i+1; j<total_lines; j++)); do
+          p_open="${lines[$j]//[^(]/}"
+          p_close="${lines[$j]//[^)]/}"
+          paren=$(( paren + ${#p_open} - ${#p_close} ))
+          if (( paren <= 0 )); then
+            scan_from=$((j + 1))
+            break
+          fi
+        done
+      fi
+
       in_mounted_if=false
       mounted_if_depth=0
       pending_neg_mounted_guard=false
       pending_neg_depth=0
       guarded=false
 
-      for ((j=i+1; j<total_lines; j++)); do
+      for ((j=scan_from; j<total_lines; j++)); do
         f_line="${lines[$j]}"
         f_line_num=$((j + 1))
         f_before=${depth_before[$j]}
@@ -233,13 +251,13 @@ while IFS= read -r file; do
         fi
 
         # Early-exit guard on one line: if (!mounted) return;  /  if (!context.mounted) { return; }
-        if [[ "$f_line" =~ if[[:space:]]*\([[:space:]]*![[:space:]]*(context\.)?mounted[[:space:]]*\)[[:space:]]*(\{[[:space:]]*)?(return|throw) ]]; then
+        if [[ "$f_line" =~ if[[:space:]]*\(.*![[:space:]]*(context\.)?mounted.*\)[[:space:]]*(\{[[:space:]]*)?(return|throw) ]]; then
           guarded=true
           break
         fi
 
         # Multi-line if (!mounted) { ... return; }
-        if [[ "$f_line" =~ if[[:space:]]*\([[:space:]]*![[:space:]]*(context\.)?mounted[[:space:]]*\)[[:space:]]*\{ ]] && (( f_after > f_before )); then
+        if [[ "$f_line" =~ if[[:space:]]*\(.*![[:space:]]*(context\.)?mounted.*\)[[:space:]]*\{ ]] && (( f_after > f_before )); then
           pending_neg_mounted_guard=true
           pending_neg_depth=$f_after
         elif [[ "$pending_neg_mounted_guard" = true ]] && [[ "$f_line" =~ (^|[^A-Za-z0-9_])(return|throw)([^A-Za-z0-9_]|$) ]]; then
@@ -247,9 +265,9 @@ while IFS= read -r file; do
           break
         fi
 
-        # Positive guard: if (mounted) ... (same line) or if (mounted) { ... } (block)
+        # Positive guard: if (mounted) / if (x && context.mounted) on the same line, or as a block
         line_guarded=false
-        if [[ "$f_line" =~ if[[:space:]]*\([[:space:]]*(context\.)?mounted[[:space:]]*\) ]]; then
+        if [[ "$f_line" =~ if[[:space:]]*\((.*[^A-Za-z0-9_.!])?(context\.)?mounted([^A-Za-z0-9_]|$) ]]; then
           line_guarded=true
           if (( f_after > f_before )); then
             in_mounted_if=true
@@ -378,7 +396,7 @@ while IFS= read -r file; do
       s_line="${lines[$s]}"
       if [[ "$s_line" =~ class[[:space:]]+([A-Za-z0-9_]+)[[:space:]]+extends[[:space:]]+State\< ]]; then
         state_class_start=$s
-        state_class_end=$total_lines
+        state_class_end=$((total_lines - 1))
         class_base=${depth_before[$s]}
         for ((k=s+1; k<total_lines; k++)); do
           if (( depth_after[k] <= class_base )); then

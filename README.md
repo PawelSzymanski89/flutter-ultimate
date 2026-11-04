@@ -1,362 +1,89 @@
 # Flutter Ultimate
 
+[![CI](https://github.com/PawelSzymanski89/flutter-ultimate/actions/workflows/ci.yml/badge.svg)](https://github.com/PawelSzymanski89/flutter-ultimate/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Flutter](https://img.shields.io/badge/Flutter-3.x%2B-02569B?logo=flutter)](https://flutter.dev)
 [![Dart](https://img.shields.io/badge/Dart-3.x%2B-0175C2?logo=dart)](https://dart.dev)
-[![Standard](https://img.shields.io/badge/Standard-Open%20Agent%20Skills%202026-blue.svg)](https://agentskills.io)
-[![Static Audit](https://img.shields.io/badge/Linter-Strict%20Pass-brightgreen.svg)](#deterministic-static-code-audit)
+[![Agent Skills](https://img.shields.io/badge/Format-Agent%20Skills-blue.svg)](https://agentskills.io)
+[![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-cygan-FFDD00?logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/cygan)
 
-A comprehensive architectural framework, static code analyzer, and engineering standard designed to target 60/120 FPS jank-free render pipelines, prevent common memory leaks at development time, guard `BuildContext` across asynchronous boundaries, establish modern Dart 3 state architectures, and ensure privacy-first native SDK defaults.
+> **This is not a widget library or an app starter.**
+> It is a principal-level engineering standard, a set of deep reference manuals, and a deterministic static analyzer for humans and AI agents working on Flutter code.
+
+Flutter Ultimate packages a Flutter / Dart engineering standard as a Claude Code plugin and an [Agent Skills](https://agentskills.io) skill: six reference manuals (74 catalogued traps plus a decision guide for advanced framework APIs), two slash commands for review and audit, and a zero-dependency audit script for CI. "Ultimate" refers to the completeness of the trap catalog and the strictness of the standard, not to an all-in-one framework.
+
+| Audience | Fit |
+| :--- | :--- |
+| Senior / principal Flutter engineers | Strongly recommended |
+| Teams that care about frame budgets and resource leaks | Highly recommended |
+| AI-assisted development (Claude Code, other Agent Skills hosts) | Excellent fit |
+| Developers learning advanced Flutter | Good as a reference |
+| Anyone looking for an app starter or a widget kit | Look elsewhere |
+
+Like it? [Buy me a coffee ☕](https://buymeacoffee.com/cygan)
 
 ---
 
 ## Table of Contents
 
-- [Core Architectural Tenets](#core-architectural-tenets)
-- [The Three-Tier Knowledge Architecture](#the-three-tier-knowledge-architecture)
-- [The 60/120 FPS Render Pipeline](#the-60120-fps-render-pipeline)
-  - [Frame Budgets (16.6ms vs. 8.33ms)](#frame-budgets-166ms-vs-833ms)
-  - [Tree Reconciliation & Const Propagation](#tree-reconciliation--const-propagation)
-  - [RepaintBoundary Isolation](#repaintboundary-isolation)
-  - [Sliver Virtualization & Scroll Performance](#sliver-virtualization--scroll-performance)
-  - [Heavy Computation & Isolate Offloading](#heavy-computation--isolate-offloading)
-- [Memory Safety & Resource Disposal](#memory-safety--resource-disposal)
-  - [The Strict Disposal Pairing Rule](#the-strict-disposal-pairing-rule)
-  - [Singleton Leak Prevention](#singleton-leak-prevention)
-  - [Stream & Sink Hygiene](#stream--sink-hygiene)
-- [Async Safety & BuildContext Protection](#async-safety--buildcontext-protection)
-  - [The Async Gap Vulnerability](#the-async-gap-vulnerability)
-  - [Mounted Guard Patterns](#mounted-guard-patterns)
-  - [Modal & Navigation Context Isolation](#modal--navigation-context-isolation)
-- [Modern Dart 3 Architecture](#modern-dart-3-architecture)
-  - [Sealed Class State Hierarchies](#sealed-class-state-hierarchies)
-  - [Pattern Matching & Destructuring](#pattern-matching--destructuring)
-  - [The 4-Tier State Selection Ladder](#the-4-tier-state-selection-ladder)
-- [Physics-Driven Motion & Micro-Interactions](#physics-driven-motion--micro-interactions)
-  - [Spring Simulations over Linear Durations](#spring-simulations-over-linear-durations)
-  - [AnimatedBuilder Optimization](#animatedbuilder-optimization)
-  - [Tactile Haptics & Design Tokens](#tactile-haptics--design-tokens)
-- [Platform Integrity & Privacy Defaults](#platform-integrity--privacy-defaults)
-  - [Privacy-First Native SDK Defaults](#privacy-first-native-sdk-defaults)
-  - [Battery Life & AppLifecycleListener](#battery-life--applifecyclelistener)
-  - [Keyboard Insets & Safe Area Protocols](#keyboard-insets--safe-area-protocols)
-- [Dedicated Commands](#dedicated-commands)
-- [Installation & Setup](#installation--setup)
-  - [Mode A: Claude Code Plugin (Recommended)](#mode-a-claude-code-plugin-recommended)
-  - [Mode B: Standalone Skill Installation](#mode-b-standalone-skill-installation)
-  - [Mode C: Statusline Indicator Hook](#mode-c-statusline-indicator-hook)
+- [What the Standard Covers](#what-the-standard-covers)
+- [Commands](#commands)
+- [Installation](#installation)
 - [Deterministic Static Code Audit](#deterministic-static-code-audit)
-  - [Active Automated Detectors](#active-automated-detectors)
-  - [Running the Audit (PowerShell)](#running-the-audit-powershell)
-  - [Running the Audit (Bash 3.2+ / macOS / Linux)](#running-the-audit-bash-32--macos--linux)
-  - [Defect Severity Classification](#defect-severity-classification)
-- [Catalog of Reference Traps](#catalog-of-reference-traps)
+  - [Limitations](#limitations)
+  - [Active Detectors](#active-detectors-19-rules)
+  - [Running the Audit](#running-the-audit)
+  - [CI and Pre-commit Examples](#ci-and-pre-commit-examples)
+  - [Measured on a Real Codebase](#measured-on-a-real-codebase)
+- [Testing](#testing)
+- [Roadmap](#roadmap)
+- [Reference Manuals](#reference-manuals)
+- [Changelog](#changelog)
 - [Contributing](#contributing)
 - [License](#license)
 
 ---
 
-## Core Architectural Tenets
+## What the Standard Covers
 
-1. **Deterministic Frame Budgets**: Target 16.6ms (60 Hz standard displays) or 8.33ms (120 Hz ProMotion displays). Layout measurement thrashing, synchronous I/O, and un-virtualized dynamic lists are kept off the main UI isolate.
-2. **Disposal Pairing Rule**: Every allocated resource holding system handles (`AnimationController`, `TextEditingController`, `ScrollController`, `FocusNode`, `StreamSubscription`, `Timer`, `StreamController`) must feature an explicit disposal or cancellation call in `dispose()`.
-3. **Async Gap Verification**: Guard widget interaction, navigation transition, or theme lookup across an `await` statement with explicit mounted verification (`if (!context.mounted) return;` or `if (!mounted) return;`).
-4. **Exhaustive Dart 3 Modeling**: Model multi-state domain flows using `sealed` class hierarchies and consume them via exhaustive switch expressions without default fallback clauses.
-5. **Privacy-First Native Defaults**: Firebase Analytics and Crashlytics are disabled by default at the operating system manifest level (`AndroidManifest.xml` and `Info.plist`) until affirmative user consent is registered.
+Five tenets, each backed by a reference manual. `SKILL.md` holds the workflow and routing; the manuals hold the rules. README only indexes them.
 
----
-
-## The Three-Tier Knowledge Architecture
-
-This framework adheres to the **Open Agent Skills 2026** three-tier progressive disclosure model:
-
-```
-+-------------------------------------------------------------------------+
-| Tier 1: Discovery & Catalog Routing                                     |
-| Frontmatter metadata specifying high-recall triggers & anti-triggers    |
-+------------------------------------+------------------------------------+
-                                     |
-                                     v
-+-------------------------------------------------------------------------+
-| Tier 2: Operational Flow & State Machine (SKILL.md)                     |
-| Planning, Construction, and Remediation workflows (< 450 lines)        |
-+------------------+------------------+------------------+----------------+
-                   |                  |                  |
-                   v                  v                  v
-+-----------------------+ +--------------------+ +------------------------+
-| Tier 3a: Deep Manuals | | Tier 3b: Scripts   | | Tier 3c: Assets        |
-| references/*.md       | | scripts/*          | | assets/*               |
-| Deep Specifications   | | Static Scanners    | | Template Linter Rules  |
-| (P1-P40, W1-W20, etc) | | (PS1 / Bash 3.2+)  | | analysis_options.yaml  |
-+-----------------------+ +--------------------+ +------------------------+
-```
-
----
-
-## The 60/120 FPS Render Pipeline
-
-### Frame Budgets (16.6ms vs. 8.33ms)
-
-The Flutter engine runs across sequential pipeline stages: **Build -> Layout -> Paint -> Composite**.
-
-| Target Refresh Rate | Total Frame Budget | Target Custom Dart Window |
+| Tenet | In one sentence | Manual |
 | :--- | :--- | :--- |
-| **60 Hz Standard** | **16.6ms** | 2.5ms - 5.0ms |
-| **120 Hz ProMotion** | **8.33ms** | 1.5ms - 2.5ms |
+| **Frame budget** | Target 16.6 ms (60 Hz) / 8.33 ms (120 Hz); keep layout thrashing, synchronous I/O and un-virtualized lists off the UI isolate. | [performance-and-rendering.md](references/performance-and-rendering.md) (P1–P40) |
+| **Disposal pairing** | Every controller, subscription, timer and sink owned by a `State` is released in `dispose()`. | [memory-and-lifecycle.md](references/memory-and-lifecycle.md) (W1–W20) |
+| **Async `BuildContext` safety** | No `Navigator`, `ScaffoldMessenger`, `Theme` or `setState` after an `await` without a mounted guard in between. | [memory-and-lifecycle.md](references/memory-and-lifecycle.md) (K1–K14) |
+| **Dart 3 modeling** | Domain state as `sealed` hierarchies with exhaustive `switch`; a four-tier state ladder (`setState` / `ValueNotifier`, `ChangeNotifier`, Riverpod / Provider, BLoC / Cubit). | [dart3-and-architecture.md](references/dart3-and-architecture.md) |
+| **Privacy-first native defaults** | Firebase Analytics and Crashlytics disabled in `AndroidManifest.xml` and `Info.plist` until the user consents. | [platform-and-security.md](references/platform-and-security.md) |
 
-### Tree Reconciliation & Const Propagation
+Cross-cutting manuals: [motion-and-ui.md](references/motion-and-ui.md) (physics animations, slivers, Hero, design tokens), [production-stack.md](references/production-stack.md) (`go_router`, `flutter_bloc`, `flutter_secure_storage`, `hive`) and, new in 1.4.0, [advanced-framework-patterns.md](references/advanced-framework-patterns.md): decision tables with trust labels (Rule / Default / Trade-off / Specialist) for `LayoutBuilder` vs `MediaQuery`, `AnimatedSwitcher` keys, Provider / BLoC selectors, keep-alive vs `PageStorageKey` vs restoration, `TickerMode`, `Future.wait`, `compute` vs `Isolate.run`, `InheritedModel` and `RawGestureDetector`.
 
-When a widget constructor is marked with `const`, the Dart compiler canonicalizes the instance in memory:
-- If instances match (`identical(oldWidget, newWidget)`), Flutter can bypass element reconciliation for that configuration.
-- Extract variable UI fragments into isolated leaf widgets to keep parent widgets immutable and avoid unnecessary rebuilds.
-
-### RepaintBoundary Isolation
-
-Widgets that redraw at high frequencies (e.g., progress spinners, custom canvas graphs, tickers) can invalidate surrounding render subtrees:
-- Wrapping such widgets in a `RepaintBoundary` inserts an isolated `RenderRepaintBoundary` node and allocates a dedicated layer.
-- Use `RepaintBoundary` selectively where subtrees animate independently or are expensive to re-rasterize, verified via Flutter DevTools. Avoid adding boundaries indiscriminately, as each boundary consumes GPU layer memory.
-
-### Sliver Virtualization & Scroll Performance
-
-- **Nested `shrinkWrap: true`**: Avoid nesting `ListView(shrinkWrap: true)` inside a `SingleChildScrollView`. This forces two-pass layout calculation where the parent measures children's intrinsic heights before laying them out. For small, bounded dialogs or bottom sheets, `shrinkWrap` is acceptable.
-- **Use `CustomScrollView`**: Combine multiple scrolling surfaces using `SliverList`, `SliverGrid`, and `SliverToBoxAdapter`.
-- **Enforce `itemExtent`**: When item heights are known, specify `itemExtent: 72.0` or `prototypeItem: const ListItemTile()` to calculate scroll offsets in O(1) time without measuring layout dimensions.
-
-### Heavy Computation & Isolate Offloading
-
-Dart execution on the UI thread is single-threaded. CPU-intensive operations that exceed frame budgets risk dropping frames:
-- **Lightweight CPU Offloading**: Use `Isolate.run()` for one-shot heavy operations (e.g., parsing JSON payloads > 50-100KB, image processing, cryptography):
-  ```dart
-  final parsedData = await Isolate.run(() => jsonDecode(heavyJsonPayload));
-  ```
-- **Persistent Workers**: For continuous data transformations, maintain a persistent worker isolate via `Isolate.spawn` communicating over `ReceivePort` and `SendPort`. Always terminate worker isolates in `dispose()`.
+Every code change the skill makes in your project is signed with `// flutter-ultimate: <TRAP_ID> <what changed and why>` directly above it, so skill-driven edits are visible in the diff and can be reverted one by one. The separate `// flutter-ultimate:ignore <TRAP_ID> <reason>` comment silences the audit for one line.
 
 ---
 
-## Memory Safety & Resource Disposal
+## Commands
 
-### The Strict Disposal Pairing Rule
+Claude Code prefixes plugin commands with the plugin name, so after installation they appear exactly as listed (type `/flutter-ultimate:` to see both):
 
-Every resource holding an OS handle, native subscription, or listener owned by a `State` class must be symmetrically initialized and torn down:
-
-| Allocated Resource | Initialization Site | Teardown Site | Teardown Invocation |
+| Command | Scope | Mechanism | Output |
 | :--- | :--- | :--- | :--- |
-| `AnimationController` | `initState()` | `dispose()` | `_controller.dispose();` |
-| `TextEditingController` | `initState()` / field | `dispose()` | `_textController.dispose();` |
-| `ScrollController` | `initState()` / field | `dispose()` | `_scrollController.dispose();` |
-| `TabController` | `initState()` | `dispose()` | `_tabController.dispose();` |
-| `FocusNode` | `initState()` / field | `dispose()` | `_focusNode.dispose();` |
-| `StreamSubscription` | `initState()` / listener | `dispose()` | `_sub?.cancel();` |
-| `Timer` | Method / `initState()` | `dispose()` | `_timer?.cancel();` |
-| `StreamController` | Field / `initState()` | `dispose()` | `_controller.close();` |
-| `AppLifecycleListener` | `initState()` | `dispose()` | `_lifecycleListener.dispose();` |
-| `OverlayEntry` | `Overlay.of(context).insert()` | `dispose()` / action | `_entry?.remove();` |
+| **`/flutter-ultimate:flutter-review`** | Working tree / diff / PR | Semantic review against `SKILL.md` and the manuals | Must-fix / should-fix / nice-to-have findings with `file:line`, verdict, frame-budget and disposal status |
+| **`/flutter-ultimate:flutter-audit`** | Whole repository | Runs `scripts/audit-flutter.*`, then reviews configuration and architecture | Executive summary, grouped findings, remediation roadmap |
 
-### Singleton Leak Prevention
-
-- **Never** store `BuildContext`, `State`, or `GlobalKey` instances in singletons or persistent domain services.
-- If application-wide navigation is required, hold a top-level `GlobalKey<NavigatorState>` registered in `MaterialApp(navigatorKey: appNavKey)`.
-- Use `ChangeNotifierProvider.value` only when the provider observes an externally managed object; ensure the true owner disposes of the object.
-
-### Stream & Sink Hygiene
-
-- Always invoke `sink.close()` before releasing references to a `StreamController`.
-- Never discard unawaited Futures when writing to sinks.
+Both commands change no code unless you ask; applied fixes carry the `// flutter-ultimate:` signature.
 
 ---
 
-## Async Safety & BuildContext Protection
-
-### The Async Gap Vulnerability
-
-When an asynchronous function suspends execution at an `await` keyword, the underlying widget may be unmounted from the element tree (e.g., user navigated back, tab switched). Calling `Navigator.of(context)` or `ScaffoldMessenger.of(context)` after resuming on an unmounted element causes `StateError` crashes or silently writes to detached render objects.
-
-### Mounted Guard Patterns
-
-In a `StatefulWidget`:
-```dart
-final profile = await apiService.fetchProfile();
-if (!mounted) return;
-setState(() => _profile = profile);
-```
-
-In modern Flutter (using `BuildContext.mounted`):
-```dart
-final profile = await apiService.fetchProfile();
-if (!context.mounted) return;
-Navigator.of(context).pushNamed('/details', arguments: profile);
-```
-
-### Modal & Navigation Context Isolation
-
-Popups, dialogs, and bottom sheets are pushed onto a separate navigation route. They do not automatically inherit dependencies provided above the calling screen. Always provide required state explicitly or pass the controller directly.
-
----
-
-## Modern Dart 3 Architecture
-
-### Sealed Class State Hierarchies
-
-For finite domain state machines (loading, loaded, error, empty), model states using `sealed` classes:
-
-```dart
-sealed class ProfileState {
-  const ProfileState();
-}
-
-final class ProfileInitial extends ProfileState {
-  const ProfileInitial();
-}
-
-final class ProfileLoading extends ProfileState {
-  const ProfileLoading();
-}
-
-final class ProfileLoaded extends ProfileState {
-  final UserProfile profile;
-  const ProfileLoaded(this.profile);
-}
-
-final class ProfileError extends ProfileState {
-  final String message;
-  const ProfileError(this.message);
-}
-```
-
-### Pattern Matching & Destructuring
-
-Consume states using exhaustive switch expressions:
-
-```dart
-Widget build(BuildContext context) {
-  return switch (state) {
-    ProfileInitial() || ProfileLoading() => const CenteredSpinner(),
-    ProfileLoaded(:final profile) => ProfileDetailsView(profile: profile),
-    ProfileError(:final message) => ErrorBanner(message: message),
-  };
-}
-```
-
-### The 4-Tier State Selection Ladder
-
-Choose the simplest sufficient state tier for your feature, respecting the project's existing architecture:
-
-| State Tier | Recommended Mechanism | Primary Use Case |
-| :--- | :--- | :--- |
-| **Tier 1: Ephemeral State** | `StatefulWidget` / `ValueNotifier` | Local checkbox, text field toggle, isolated leaf animations. |
-| **Tier 2: Scoped Subtree** | `ChangeNotifier` / `InheritedNotifier` | Multi-widget form validation, local modal coordination. |
-| **Tier 3: Domain Module** | Riverpod / Provider | Asynchronous data fetching, cached repository sync, global auth. |
-| **Tier 4: Enterprise Flow** | BLoC / Cubit (`flutter_bloc`) | Complex multi-step wizards, audit-logged enterprise state machines. |
-
----
-
-## Physics-Driven Motion & Micro-Interactions
-
-### Spring Simulations over Linear Durations
-
-Linear tweens feel unnatural on touch devices. Leverage physics-based spring simulations:
-```dart
-final simulation = SpringSimulation(
-  const SpringDescription(mass: 1.0, stiffness: 180.0, damping: 20.0),
-  0.0, // Start position
-  1.0, // End position
-  velocity, // Initial drag velocity
-);
-_controller.animateWith(simulation);
-```
-
-### AnimatedBuilder Optimization
-
-Reuse static child subtrees during animation ticks:
-```dart
-AnimatedBuilder(
-  animation: _scaleAnimation,
-  builder: (context, child) => Transform.scale(
-    scale: _scaleAnimation.value,
-    child: child, // Reuses static subtree
-  ),
-  child: const HeavyComplexStaticCard(),
-);
-```
-
-### Tactile Haptics & Design Tokens
-
-Provide feedback on tactile interactions:
-- Non-destructive micro-actions (tab switch, chip toggle): `HapticFeedback.lightImpact();`
-- Primary actions (slider detent, drawer snap, swipe completion): `HapticFeedback.mediumImpact();`
-- Long-press menus and deletions: `HapticFeedback.heavyImpact();`
-- Picker wheel increments: `HapticFeedback.selectionClick();`
-
----
-
-## Platform Integrity & Privacy Defaults
-
-### Privacy-First Native SDK Defaults
-
-Third-party analytics SDKs can initiate tracking sessions during early initialization. Configure native manifests with collection disabled by default until explicit user consent is captured.
-
-**Android (`android/app/src/main/AndroidManifest.xml`):**
-```xml
-<meta-data
-    android:name="firebase_analytics_collection_enabled"
-    android:value="false" />
-<meta-data
-    android:name="firebase_crashlytics_collection_enabled"
-    android:value="false" />
-```
-
-**iOS (`ios/Runner/Info.plist`):**
-```xml
-<key>FIREBASE_ANALYTICS_COLLECTION_ENABLED</key>
-<false/>
-<key>FirebaseCrashlyticsCollectionEnabled</key>
-<false/>
-```
-
-### Battery Life & AppLifecycleListener
-
-Suspend background timers, polling, and continuous sensor streams when the application leaves the foreground:
-```dart
-late final AppLifecycleListener _lifecycleListener;
-
-@override
-void initState() {
-  super.initState();
-  _lifecycleListener = AppLifecycleListener(
-    onPause: _suspendSensors,
-    onResume: _resumeSensors,
-  );
-}
-
-@override
-void dispose() {
-  _lifecycleListener.dispose();
-  super.dispose();
-}
-```
-
----
-
-## Dedicated Commands
-
-Two commands ship with the plugin. Claude Code namespaces plugin commands with the plugin name, so after installation they appear exactly as listed below (type `/flutter-ultimate:` to see both):
-
-| Command | Scope | Mechanism | Function |
-| :--- | :--- | :--- | :--- |
-| **`/flutter-ultimate:flutter-review`** | Working tree changes / git diff | Semantic LLM Analysis (`SKILL.md`) | Reviews changes against 60/120 FPS pipeline, disposal pairing, `BuildContext` async safety, and Dart 3 idioms. Outputs a 7-section structured report. |
-| **`/flutter-ultimate:flutter-audit`** | Whole repository / directory | Deterministic Script (`scripts/audit-flutter.*`) | Executes deterministic static code analysis, verifies linter currency, checks native manifest privacy flags, and outputs human-readable or JSON reports. |
-
----
-
-## Installation & Setup
-
-### Mode A: Claude Code Plugin (Recommended)
-
-Flutter Ultimate is packaged as a standard Claude Code plugin (`.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, `commands/`, `skills/`, `hooks/`).
+## Installation
 
 **Requirements:** `node` on `PATH` for the SessionStart hook (without it the hook does nothing and the full mode is not injected). The statusline degrades to badge-only without Node, and the audit scripts need only Bash 3.2+ or PowerShell 5.1+.
 
-**Single-Step Marketplace Installation (Claude Code 2.1.275+):**
+### Mode A: Claude Code Plugin (Recommended)
+
+Packaged as a standard Claude Code plugin (`.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, `commands/`, `skills/`, `hooks/`).
+
+**Single-step marketplace installation (Claude Code 2.1.275+):**
 ```bash
 /plugin install flutter-ultimate --marketplace PawelSzymanski89/flutter-ultimate
 ```
@@ -369,29 +96,21 @@ claude plugin install flutter-ultimate --marketplace ./flutter-ultimate
 
 ### Mode B: Standalone Skill Installation
 
-Install directly into your agent skills directory. This gives you `SKILL.md` and the `references/` only: the SessionStart hook, the `/flutter-ultimate:*` commands and the statusline need the plugin install from Mode A.
+Clone into an agent skills directory. This gives you `SKILL.md` and the `references/` only: the SessionStart hook, the `/flutter-ultimate:*` commands and the statusline need the plugin install from Mode A.
 
-**Project-Level:**
 ```bash
+# project-level
 mkdir -p .claude/skills
 git clone https://github.com/PawelSzymanski89/flutter-ultimate.git .claude/skills/flutter-ultimate
-```
 
-**Global (all local projects):**
-```bash
+# global
 mkdir -p ~/.claude/skills
 git clone https://github.com/PawelSzymanski89/flutter-ultimate.git ~/.claude/skills/flutter-ultimate
 ```
 
 ### Mode C: Statusline Indicator Hook
 
-Enable the dynamic `[FLUTTER]` statusline badge in Claude Code.
-
-The statusline needs a stable path. A marketplace install lives in a versioned cache (`~/.claude/plugins/cache/<marketplace>/flutter-ultimate/<version>/`) that moves on every update, so do not point the statusline there. Clone the repository once to a fixed location (the same clone also serves as the Mode B skill install):
-
-```bash
-git clone https://github.com/PawelSzymanski89/flutter-ultimate.git ~/.claude/skills/flutter-ultimate
-```
+The statusline needs a stable path. A marketplace install lives in a versioned cache (`~/.claude/plugins/cache/<marketplace>/flutter-ultimate/<version>/`) that moves on every update, so do not point the statusline there. Use the global clone from Mode B:
 
 **Windows (`~/.claude/settings.json`):**
 ```json
@@ -415,111 +134,157 @@ Without `node` the badge still renders (Flutter detection is plain shell); only 
 
 ## Deterministic Static Code Audit
 
-Flutter Ultimate provides a clear separation of concerns between **deterministic static analysis** and **semantic agent review**:
+`scripts/audit-flutter.sh` (Bash 3.2+) and `scripts/audit-flutter.ps1` (PowerShell 5.1+ / pwsh) implement the same 19 rules with the same CLI, exit codes, JSON output, file paths, line numbers and messages. The test suite diffs their normalised output on every CI run.
 
-- **Deterministic Static Audit (`scripts/audit-flutter.*`)**: 19 automated rules providing instant, zero-dependency, reproducible pass/fail checks for CI/CD with exact file, line, and trapId reporting (25 findings exercised concurrently in the positive fixture; `LINT-01` verifies configuration presence while `LINT-02` flags outdated packages).
-- **Semantic Agent Review (`/flutter-ultimate:flutter-review` & `SKILL.md`)**: 54 semantic patterns (and 80+ in `references/*.md`) evaluating architectural trade-offs, state management, and micro-interactions.
+### Limitations
 
-### What the detectors do and do not see
+- The scanners are text and brace-depth heuristics, **not** a Dart AST parser. Braces inside string literals, block comments and unusual formatting skew them.
+- False positives and false negatives are possible. Every `K01` and `W*` message says what was and was not verified.
+- **K01** scans the function body that contains the `await` (nearest non-control-flow block opener). The awaited statement's own argument list is skipped, so callbacks inside `await showDialog(...)` are not reported. A guard placed before the `await`, or in a sibling block, does not count. Closures passed to `.then(...)` are scanned as their own scope.
+- **W01 / W03 / W06 / W14** treat a resource as State-owned when it is initialised at field level or assigned to a declared field; locals inside methods are ignored (clean them up with `try/finally`). A release counts only inside `dispose()` or inside a method that `dispose()` calls directly. Not tracked: anonymous `Timer(...)` / `.listen(...)` without assignment, tear-offs (`disposables.add(_c.dispose)`), bulk loops, releases delegated to mixins or managers. Use `// flutter-ultimate:ignore W01 <reason>` for those.
+- Treat findings as strong signals, not as proof. Verify CRITICAL findings in code review and performance findings with Flutter DevTools.
 
-The scanners are deterministic text heuristics, not a Dart parser. Every `K01` and `W*` message says so. Known limits:
-
-- **K01** scans the function body that contains the `await` (brace depth, comment lines ignored). A guard placed before the `await`, or in a sibling block, does not count. Closures passed to `.then(...)` are scanned as their own scope. Braces inside string literals skew the depth.
-- **W01/W03/W06/W14** treat a resource as State-owned when it is initialised at field level or assigned to a declared field; locals inside methods are ignored (clean them up with `try/finally`, not `State.dispose()`). A release counts only inside `dispose()` or inside a method that `dispose()` calls directly (one level). Not tracked: anonymous `Timer(...)` / `.listen(...)` without assignment, tear-offs (`disposables.add(_c.dispose)`), bulk loops (`for (final c in _all) c.dispose()`), releases delegated to mixins or managers. Use `// flutter-ultimate:ignore W01 <reason>` for those.
-
-### Active Automated Detectors (19 Rules)
+### Active Detectors (19 Rules)
 
 | Rule ID | Severity | Category | Description |
 | :--- | :--- | :--- | :--- |
-| **K01** | `CRITICAL` | Async Safety | `BuildContext` invoked after `await` (`setState`, `Navigator`, dialogs, `context.*`) without `if (!context.mounted) return;` or `if (!mounted) return;` guard. |
-| **W01** | `CRITICAL` | Memory Disposal | Controller instantiated in `State` without corresponding `.dispose()` call. |
-| **W03** | `CRITICAL` | Memory Disposal | `StreamSubscription` listened in `State` without corresponding `.cancel()` call. |
-| **W06** | `CRITICAL` | Memory Disposal | `Timer` instantiated in `State` without corresponding `.cancel()` call. |
-| **W14** | `CRITICAL` | Memory Disposal | `StreamController` instantiated in `State` without corresponding `.close()` call. |
-| **P03** | `LOW` | Rebuild Scoping | Helper `_buildX()` method inside a Widget. Extract into a `StatelessWidget` for isolated rebuild boundaries. |
-| **P32** | `HIGH` | GC & Allocations | `Paint` or `Path` instantiated inside `build()` or `paint()` methods. |
-| **P07** | `HIGH` | Rebuild Scoping | Broad `MediaQuery.of(context)` dependency. Use aspect methods (`sizeOf`, `paddingOf`, `viewInsetsOf`). |
-| **P12** | `HIGH` | Frame Budget | Eager `Future` or `Stream` instantiation directly inside `FutureBuilder` or `StreamBuilder`. |
-| **P19** | `HIGH` | Layout Passes | `shrinkWrap: true` forcing two-pass layout calculation inside scrollable contexts. |
-| **P21** | `HIGH` | Layout Passes | `IntrinsicHeight` or `IntrinsicWidth` triggering speculative layout passes (token-isolated). |
-| **P26** | `MEDIUM` | Compositing | `Opacity` widget creating offscreen render buffers (token-isolated, ignores `AnimatedOpacity`, `SliverOpacity`). |
-| **P27** | `LOW` | Clipping | `ClipRRect` creating clipping overhead. Prefer `BoxDecoration.borderRadius` where child clipping is not needed. |
-| **LINT-01** | `MEDIUM` | Configuration | Missing standard linter package (`flutter_lints`, `very_good_analysis`, `lints`, `solid_lints`) or `analysis_options.yaml` include. |
-| **LINT-02** | `HIGH` | Configuration | Outdated linter package (legacy `flutter_lints` 1.x-3.x). |
-| **GDPR-01..04**| `CRITICAL` | Native Privacy | Native manifests missing default disabled analytics flags (strictly conditioned on Firebase dependencies in `pubspec.yaml`). |
+| **K01** | `CRITICAL` | Async Safety | `setState`, `Navigator`, dialogs, `ScaffoldMessenger` / `Theme` / `MediaQuery` lookups or `context.*` used after an `await` in the same function without a mounted guard in between. |
+| **W01** | `CRITICAL` | Memory Disposal | Controller created by a `State` without `.dispose()` on a path reachable from `dispose()`. |
+| **W03** | `CRITICAL` | Memory Disposal | `StreamSubscription` without `.cancel()` reachable from `dispose()`. |
+| **W06** | `CRITICAL` | Memory Disposal | `Timer` without `.cancel()` reachable from `dispose()`. |
+| **W14** | `CRITICAL` | Memory Disposal | `StreamController` without `.close()` reachable from `dispose()`. |
+| **P03** | `LOW` | Rebuild Scoping | Helper `_buildX()` method inside a widget; a `StatelessWidget` gives an isolated rebuild boundary. |
+| **P07** | `HIGH` | Rebuild Scoping | Broad `MediaQuery.of(context)` dependency; use `sizeOf`, `paddingOf`, `viewInsetsOf`. |
+| **P12** | `HIGH` | Frame Budget | `Future` / `Stream` created inline in `FutureBuilder` / `StreamBuilder` inside `build()`. |
+| **P19** | `HIGH` | Layout Passes | `shrinkWrap: true`; expensive when nested in a scrollable, acceptable in small bounded dialogs. |
+| **P21** | `HIGH` | Layout Passes | `IntrinsicHeight` / `IntrinsicWidth` speculative layout passes. |
+| **P26** | `MEDIUM` | Compositing | `Opacity` with a fractional value (literal `0.0` / `1.0`, `AnimatedOpacity`, `SliverOpacity` are ignored). |
+| **P27** | `LOW` | Clipping | `ClipRRect`; prefer `BoxDecoration.borderRadius` when the child does not need clipping. |
+| **P32** | `HIGH` | GC & Allocations | `Paint` or `Path` allocated inside `build()` or `paint()`. |
+| **LINT-01** | `MEDIUM` | Configuration | No linter package (`flutter_lints`, `very_good_analysis`, `lints`, `solid_lints`) and no `analysis_options.yaml` include. |
+| **LINT-02** | `HIGH` | Configuration | Outdated `flutter_lints` (1.x–3.x). |
+| **GDPR-01..04** | `CRITICAL` | Native Privacy | Native manifests missing the disabled-by-default analytics / crashlytics flags (only when `firebase_analytics` / `firebase_crashlytics` are in `pubspec.yaml`). |
 
-### CLI Contract & Return Codes
+### Running the Audit
 
-Both `audit-flutter.sh` and `audit-flutter.ps1` share an identical command-line and exit code contract:
-
-| Exit Code | Meaning | Condition |
-| :---: | :--- | :--- |
-| `0` | **Clean / Warning Pass** | No findings, or only `MEDIUM`/`LOW` findings without `--strict` / `-Strict`. |
-| `1` | **Violations Detected** | One or more `CRITICAL` or `HIGH` findings detected, or any finding under `--strict` / `-Strict`. |
-| `2` | **CLI Error** | Unknown command-line option, missing `--target` argument, or non-existent target directory. |
-
-### JSON Output Contract
-
-When `--json` or `-Json` is passed:
-- **Zero findings**: Outputs strictly `[]` (with exit code 0).
-- **One finding**: Outputs a valid single-element JSON array `[{...}]`.
-- **Multiple findings**: Outputs a formatted JSON array `[{...}, {...}]`.
-
-### Running the Audit (Bash 3.2+ / macOS / Linux / Git Bash)
-
-Full compatibility with macOS default system `/bin/bash` 3.2, Linux, and Windows Git Bash:
+Exit codes: `0` clean or only MEDIUM / LOW findings, `1` any CRITICAL / HIGH finding (or any finding with `--strict`), `2` CLI error. `--json` prints `[]` for zero findings and a JSON array otherwise.
 
 ```bash
-# Run audit against target repository
-bash ./scripts/audit-flutter.sh --target /path/to/project
-
-# Run audit in strict mode (fails on any finding including MEDIUM/LOW)
-bash ./scripts/audit-flutter.sh --target /path/to/project --strict
-
-# Output machine-readable JSON for CI/CD pipelines
-bash ./scripts/audit-flutter.sh --target /path/to/project --json
+# Bash 3.2+ (macOS system bash, Linux, Git Bash)
+bash scripts/audit-flutter.sh                       # current directory
+bash scripts/audit-flutter.sh --target path/to/app  # another project
+bash scripts/audit-flutter.sh --json --strict       # CI: machine-readable, fail on any finding
 ```
-
-### Running the Audit (PowerShell 5.1+ / pwsh / Windows)
-
-Full compatibility with Windows PowerShell 5.1 and modern PowerShell 7+ (`pwsh`):
 
 ```powershell
-# Run audit against target repository
-.\scripts\audit-flutter.ps1 -Target C:\path\to\project
-
-# Run audit in strict mode
-.\scripts\audit-flutter.ps1 -Target C:\path\to\project -Strict
-
-# Output machine-readable JSON for CI/CD pipelines
-.\scripts\audit-flutter.ps1 -Target C:\path\to\project -Json
+# PowerShell 5.1+ / pwsh
+powershell -ExecutionPolicy Bypass -File scripts/audit-flutter.ps1
+powershell -ExecutionPolicy Bypass -File scripts/audit-flutter.ps1 -Target path\to\app -Json -Strict
 ```
 
-### Defect Severity Classification
+Suppress one finding with a comment on the line directly above it (for `K01`, above the line that uses the context, not above the `await`):
 
-| Severity | Definition | Pipeline Action |
-| :--- | :--- | :--- |
-| **CRITICAL** | Memory leaks in State (`W01`, `W03`, `W06`, `W14`), unmounted `BuildContext` invocations (`K01`), missing native privacy flags (`GDPR-01..04`). | **Build Broken**. Immediate resolution required before merge. |
-| **HIGH** | Frame budget violations (`P12`, `P19`, `P21`), allocations in draw loop (`P32`), outdated linter package (`LINT-02`). | **Quality Gate Fail**. Must be resolved prior to release tag. |
-| **MEDIUM** | Missing linter configuration (`LINT-01`), broad `MediaQuery.of` dependency (`P07`), offscreen `Opacity` buffers (`P26`). | Refactor during normal development sprint. |
-| **LOW** | Minor style discrepancies, ClipRRect optimization (`P27`), helper method extraction (`P03`). | Clean up when modifying file. |
+```dart
+// flutter-ultimate:ignore W14 Global controller intentionally lives for the whole app lifecycle
+final globalStore = StreamController<GlobalEvent>.broadcast();
+```
+
+### CI and Pre-commit Examples
+
+Copy `scripts/audit-flutter.sh` into your app repository (it has no dependencies), then:
+
+```yaml
+# .github/workflows/flutter-ultimate.yml
+name: Flutter Ultimate Audit
+on: [pull_request]
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash scripts/audit-flutter.sh --target . --json --strict
+```
+
+```bash
+# .git/hooks/pre-commit (chmod +x); blocks the commit on CRITICAL / HIGH findings
+#!/usr/bin/env bash
+bash scripts/audit-flutter.sh --target . >/dev/null || {
+  bash scripts/audit-flutter.sh --target .
+  exit 1
+}
+```
+
+### Measured on a Real Codebase
+
+v1.4.0 was run against a production Flutter app of 808 Dart files / 186k lines (not public). On an Apple Silicon Mac the Bash scanner takes about 40 s and reports 585 findings:
+
+| Rule | Findings | Manual sample | Confirmed |
+| :--- | ---: | :--- | :--- |
+| K01 | 138 | 10 random | 8 confirmed, 2 undetermined, 0 false |
+| W01 | 70 | 6 random | 6 confirmed (no `dispose()` at all) |
+| P07 | 184 | | all `MediaQuery.of(context).size/padding/viewInsets` |
+| P27 | 87 | | `ClipRRect`, LOW |
+| P03 / P19 / P26 / P32 / P21 / P12 | 38 / 29 / 13 / 12 / 10 / 4 | | |
+
+Three detector fixes came out of that run and shipped in 1.4.0: a crash on a `State` class whose braces never balance (string literals), callbacks inside the awaited call's own argument list reported as "after await" (previously about a quarter of K01 findings on the measured codebase), and `mounted` inside a compound condition (`if (ok && mounted)`) not recognised as a guard.
 
 ---
 
-## Catalog of Reference Traps
+## Testing
 
-For exhaustive code comparisons, structural diagrams, and verified solutions, consult the deep reference specifications:
+```bash
+/bin/bash test/run_tests.sh      # Bash suite (macOS system bash 3.2 is the reference shell)
+pwsh test/run_tests.ps1          # PowerShell suite, includes Bash <-> PowerShell parity
+shellcheck scripts/*.sh hooks/*.sh test/*.sh
+claude plugin validate .
+```
 
-- **[references/performance-and-rendering.md](references/performance-and-rendering.md)**: Full breakdown of Traps P1 through P40 (Build method futures, layout thrashing, `MediaQuery` patterns, and image memory scaling).
-- **[references/memory-and-lifecycle.md](references/memory-and-lifecycle.md)**: Full breakdown of Memory Leaks W1 through W20 (Controller disposal, stream leaks, singleton closures) and Context Traps K1 through K14 (Async gap guards, dialog navigation, and `initState` lookups).
-- **[references/motion-and-ui.md](references/motion-and-ui.md)**: Physics-based animation pipelines, custom sliver geometry, and Hero shuttle optimization.
-- **[references/dart3-and-architecture.md](references/dart3-and-architecture.md)**: Clean Architecture boundary specifications, sealed class exhaustive matching, and state ladder guidelines.
-- **[references/production-stack.md](references/production-stack.md)**: Production stack blueprints: `go_router` StatefulShellRoute tab state preservation, auth redirection, `flutter_bloc` concurrency transformers (`restartable`, `droppable`), `flutter_secure_storage` hardware keystore options, and `hive` AES-256 encrypted LazyBox memory budgeting.
-- **[references/platform-and-security.md](references/platform-and-security.md)**: Native manifest configurations, biometric storage security, and background execution limits.
+Fixtures live in `test/fixtures/`: `positive` (every detector fires at least once, 25 findings), `negative` (regression cases that must stay clean), `single` (one finding, JSON array contract), `suppression` (every finding silenced). CI runs the suites on Ubuntu, macOS (`/bin/bash`), and Windows (pwsh 7, Windows PowerShell 5.1, Git Bash).
+
+`test/decisions.md` holds 13 decision scenarios for the advanced-patterns reference. They are a reviewer checklist, not an automated test: ask the agent each scenario after changing the reference and compare with the expected choice.
+
+---
+
+## Roadmap
+
+Short term
+
+- Case study of the audit on a public open-source Flutter app (false-positive and false-negative counts per rule).
+- More regression fixtures as real-world false positives are reported.
+
+Medium term
+
+- Additional scanner rules only where precision is high (candidates: `UniqueKey()` in `build()`, `addPostFrameCallback` inside `build()`).
+- Decision scenarios run through an eval harness instead of by hand.
+
+Long term
+
+- An AST-based analyzer (Dart `analyzer` package or `custom_lint`) for K01 and the disposal rules, with the Bash / PowerShell scripts kept as the zero-dependency fallback.
+- Fix suggestions emitted next to findings (mounted guard, `dispose()` stub).
+
+---
+
+## Reference Manuals
+
+- **[references/performance-and-rendering.md](references/performance-and-rendering.md)**: Traps P1–P40 (build-method futures, layout thrashing, `MediaQuery` patterns, image memory scaling, isolates).
+- **[references/memory-and-lifecycle.md](references/memory-and-lifecycle.md)**: Memory leaks W1–W20 (controller disposal, stream leaks, singleton closures) and context traps K1–K14 (async gap guards, dialog navigation, `initState` lookups), `AppLifecycleListener`.
+- **[references/motion-and-ui.md](references/motion-and-ui.md)**: Physics-based animation, custom sliver geometry, Hero shuttles, design tokens.
+- **[references/dart3-and-architecture.md](references/dart3-and-architecture.md)**: Sealed classes, records, pattern matching, the four-tier state ladder, clean architecture boundaries.
+- **[references/production-stack.md](references/production-stack.md)**: `go_router` StatefulShellRoute and auth guards, `flutter_bloc` concurrency transformers, `flutter_secure_storage` hardware keystore options, `hive` encrypted LazyBox budgeting.
+- **[references/platform-and-security.md](references/platform-and-security.md)**: Native manifest privacy flags, keyboard insets, SafeArea rules, sensitive-screen protection.
+- **[references/advanced-framework-patterns.md](references/advanced-framework-patterns.md)**: Decision tables with trust labels for constraints-driven layout, `AnimatedSwitcher`, selectors, state preservation and restoration, `TickerMode`, `Future.wait`, isolates, `InheritedModel`, `RawGestureDetector`, performance overlay.
 
 ---
 
 ## Changelog
+
+### v1.4.0 (2026-11-05)
+- **Advanced Framework Patterns**: new `references/advanced-framework-patterns.md` (275 lines): decision tables first, trust labels (Rule / Default / Trade-off / Specialist), six everyday patterns with one analyzer-checked snippet each (`LayoutBuilder` vs `MediaQuery` vs `SliverLayoutBuilder`, `AnimatedSwitcher` keys, Provider / BLoC selectors, conditional keep-alive, `TickerMode`, `Future.wait`), a supplementary table (`PageStorageKey`, `PageController.keepPage`, `RestorationMixin`, performance overlay, `compute` vs `Isolate.run`) and two specialist notes (`InheritedModel`, `RawGestureDetector`). Snippets verified with `dart analyze` on Flutter 3.47.5 / Dart 3.13.4 with `provider` 6.1 and `flutter_bloc` 9.1. Routing row and load / do-not-load rule in `SKILL.md`; `test/decisions.md` with 13 reviewer scenarios.
+- **Skill-driven changes are signed**: every edit the skill makes carries `// flutter-ultimate: <TRAP_ID> <reason>` (SKILL.md Construction Step 0, remediation step 4, `hooks/mode.md`, both commands). Project observations are reported as proposals, never written into the skill's own files during a task.
+- **K01 precision** (from the real-codebase run): the awaited statement's own argument list is skipped (dialog builders and `onPressed` callbacks inside `await showDialog(...)` are no longer reported); `mounted` inside a compound condition (`if (ok && mounted)`, `if (!ok || !mounted) return;`) is recognised as a guard. Regression fixtures added.
+- **Crash fix**: a `State` class whose braces never balance (braces inside string literals) made the W pass index past the end of the file; it now stops at the last line.
+- **Agent Skills compliance**: `allowed-tools` is a space-separated string as the specification requires; the invented "Open Agent Skills 2026" name replaced by the standard's name.
+- **README rewritten**: positioning up front, audience table, limitations next to the detector table, CI and pre-commit examples, measured results on a 186k-line production app, roadmap; the sections that duplicated the reference manuals are gone (74 catalogued traps, not "54").
 
 ### v1.3.1 (2026-11-04)
 - **K01 Function-Scoped Analysis**: The scan now resolves the function body that contains the `await` (nearest non-control-flow block opener) instead of counting braces from the `await` line. Fixes the false negative when a mounted check sits *before* the `await` inside an `if` block, recognises generic `showDialog<void>(...)`, and deduplicates findings when several `await`s precede one unsafe line. Same-line guards (`if (mounted) setState(...)`) are honoured.
@@ -563,14 +328,16 @@ For exhaustive code comparisons, structural diagrams, and verified solutions, co
 
 ## Contributing
 
-1. Fork the repository.
-2. Create your feature branch (`git checkout -b feature/my-feature`).
-3. Verify that all static audit checks pass: `.\scripts\audit-flutter.ps1 -Strict`.
-4. Commit your changes (`git commit -m "feat: add architecture guideline"`).
-5. Push to your branch and submit a Pull Request.
+1. Fork the repository and create a branch (`git checkout -b feature/my-change`).
+2. Run the gate: both test suites, `shellcheck`, `claude plugin validate .`.
+3. If you touch a detector, add a fixture case for the behaviour you changed (positive or negative) and keep Bash / PowerShell parity.
+4. If you touch a reference, keep `SKILL.md` as a map (routing only) and update `test/decisions.md` when a decision rule changes.
+5. Open a pull request that says what changed and why.
 
 ---
 
 ## License
 
-This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
+MIT, see [LICENSE](LICENSE).
+
+Podoba się? [Postaw kawę ☕](https://buymeacoffee.com/cygan) / Like it? [Buy me a coffee ☕](https://buymeacoffee.com/cygan)

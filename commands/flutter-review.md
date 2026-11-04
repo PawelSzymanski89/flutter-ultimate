@@ -54,4 +54,6 @@ Systematically evaluate against the **Flutter Ultimate** standards in strict pri
 6. **Disposal & Memory Status**: Clean / Leaks Found.
 7. **Not checked**: Any files, native manifests, or platforms not inspected.
 
-Change no code.
+Change no code unless the user asks you to apply the fixes. When you do apply them, put `// flutter-ultimate: <TRAP_ID> <what changed and why>` directly above every edited line or block, so each skill-driven change is visible in the diff and can be reverted on its own.
+
+When the change touches `LayoutBuilder` vs `MediaQuery`, `AnimatedSwitcher`, selectors, keep-alive / `PageStorageKey` / restoration, `TickerMode`, `Future.wait` or isolates, check the decision tables in `references/advanced-framework-patterns.md` before judging it.

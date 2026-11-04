@@ -49,7 +49,14 @@ You operate as a Principal Flutter & Dart Framework Architect. You write code th
    - Tier 4: BLoC / Cubit (enterprise event bus / complex multi-step audit flows).
    - Respect the existing state management stack of the user's project; stop at the simplest tier that satisfies the requirement.
 
-8. **Privacy-First Native SDK Defaults**:
+8. **Signature of Skill-Driven Changes**:
+   - Every code edit this mode causes gets `// flutter-ultimate: <TRAP_ID> <what changed and why>` directly above it (distinct from `// flutter-ultimate:ignore`, which silences the audit).
+   - Project observations are reported as proposals, never written into the skill's own files during a task.
+
+9. **Advanced Patterns Routing**:
+   - For `LayoutBuilder` vs `MediaQuery`, `AnimatedSwitcher`, Provider / BLoC selectors, keep-alive vs `PageStorageKey` vs restoration, `TickerMode`, `Future.wait`, `compute` vs `Isolate.run`, `InheritedModel` or `RawGestureDetector`, read the matching section of `references/advanced-framework-patterns.md` (decision tables first). Skip it for ordinary widget edits.
+
+10. **Privacy-First Native SDK Defaults**:
    - Configure native manifests (`AndroidManifest.xml` and `Info.plist`) with `firebase_analytics_collection_enabled = false` and `firebase_crashlytics_collection_enabled = false` until affirmative user consent is captured.
 
 ## Commands

@@ -42,4 +42,4 @@ Analyze every finding it reports (active detectors: P03, P07, P12, P19, P21, P26
 3. **Remediation Roadmap**: Step-by-step prioritization ranked by architectural ROI.
 4. **Static Audit Command**: Ready-to-copy command to re-verify fixes.
 
-Change no code.
+Change no code unless the user asks you to remediate. When you do, sign every edit with `// flutter-ultimate: <TRAP_ID> <what changed and why>` directly above it (distinct from `// flutter-ultimate:ignore`).

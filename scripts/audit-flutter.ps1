@@ -129,13 +129,24 @@ foreach ($FileItem in $DartFiles) {
             }
             if ($BodyDepth -lt 0) { $BodyDepth = 0 }
 
+            # Skip the rest of the awaited statement: a multi-line argument list holds
+            # callbacks (dialog builders, onPressed) that run inside the call, not after it.
+            $ScanFrom = $i + 1
+            $Paren = ($Line.Split('(').Count - 1) - ($Line.Split(')').Count - 1)
+            if ($Paren -gt 0) {
+                for ($j = $i + 1; $j -lt $TotalLines; $j++) {
+                    $Paren += ($Lines[$j].Split('(').Count - 1) - ($Lines[$j].Split(')').Count - 1)
+                    if ($Paren -le 0) { $ScanFrom = $j + 1; break }
+                }
+            }
+
             $InMountedIf = $false
             $MountedIfDepth = 0
             $PendingNegMountedGuard = $false
             $PendingNegDepth = 0
             $Guarded = $false
 
-            for ($j = $i + 1; $j -lt $TotalLines; $j++) {
+            for ($j = $ScanFrom; $j -lt $TotalLines; $j++) {
                 $FLine = $Lines[$j]
                 $FLineNum = $j + 1
                 $FBefore = $DepthBefore[$j]
@@ -147,12 +158,12 @@ foreach ($FileItem in $DartFiles) {
                 if ($InMountedIf -and $FBefore -lt $MountedIfDepth) { $InMountedIf = $false }
                 if ($PendingNegMountedGuard -and $FBefore -lt $PendingNegDepth) { $PendingNegMountedGuard = $false }
 
-                if ($FLine -match "if\s*\(\s*!\s*(?:context\.)?mounted\s*\)\s*(\{\s*)?(return|throw)") {
+                if ($FLine -match "if\s*\(.*!\s*(?:context\.)?mounted.*\)\s*(\{\s*)?(return|throw)") {
                     $Guarded = $true
                     break
                 }
 
-                if ($FLine -match "if\s*\(\s*!\s*(?:context\.)?mounted\s*\)\s*\{" -and $FAfter -gt $FBefore) {
+                if ($FLine -match "if\s*\(.*!\s*(?:context\.)?mounted.*\)\s*\{" -and $FAfter -gt $FBefore) {
                     $PendingNegMountedGuard = $true
                     $PendingNegDepth = $FAfter
                 } elseif ($PendingNegMountedGuard -and $FLine -match "(?:^|[^A-Za-z0-9_])(?:return|throw)(?:[^A-Za-z0-9_]|$)") {
@@ -161,7 +172,7 @@ foreach ($FileItem in $DartFiles) {
                 }
 
                 $LineGuarded = $false
-                if ($FLine -match "if\s*\(\s*(?:context\.)?mounted\s*\)") {
+                if ($FLine -match "if\s*\((?:.*[^A-Za-z0-9_.!])?(?:context\.)?mounted(?:[^A-Za-z0-9_]|$)") {
                     $LineGuarded = $true
                     if ($FAfter -gt $FBefore) {
                         $InMountedIf = $true
@@ -294,7 +305,7 @@ foreach ($FileItem in $DartFiles) {
             $SLine = $Lines[$s]
             if ($SLine -match "class\s+([A-Za-z0-9_]+)\s+extends\s+State<") {
                 $StateClassStart = $s
-                $StateClassEnd = $TotalLines
+                $StateClassEnd = $TotalLines - 1
                 $ClassBase = $DepthBefore[$s]
                 for ($k = $s + 1; $k -lt $TotalLines; $k++) {
                     if ($DepthAfter[$k] -le $ClassBase) { $StateClassEnd = $k; break }

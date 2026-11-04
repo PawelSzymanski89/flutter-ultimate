@@ -264,3 +264,66 @@ class _LocalResourceWidgetState extends State<LocalResourceWidget> {
 class PlainService {
   final TextEditingController serviceController = TextEditingController();
 }
+
+// Regression: context used inside the callbacks of the awaited call itself (dialog builder,
+// onPressed) runs while the dialog is open, not after the await, and must not trigger K01.
+class AwaitedCallbackWidget extends StatefulWidget {
+  const AwaitedCallbackWidget({super.key});
+
+  @override
+  State<AwaitedCallbackWidget> createState() => _AwaitedCallbackWidgetState();
+}
+
+class _AwaitedCallbackWidgetState extends State<AwaitedCallbackWidget> {
+  Future<void> confirm() async {
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted) return;
+    setState(() {});
+  }
+
+  @override
+  Widget build(BuildContext context) => const SizedBox.shrink();
+}
+
+// Regression: mounted inside a compound condition is a valid guard (same line and block forms).
+class CompoundGuardWidget extends StatefulWidget {
+  const CompoundGuardWidget({super.key});
+
+  @override
+  State<CompoundGuardWidget> createState() => _CompoundGuardWidgetState();
+}
+
+class _CompoundGuardWidgetState extends State<CompoundGuardWidget> {
+  bool flag = false;
+
+  Future<void> sameLine() async {
+    await Future<void>.value();
+    if (flag && mounted) setState(() => flag = false);
+  }
+
+  Future<void> block(bool ok) async {
+    await Future<void>.value();
+    if (!ok && context.mounted) {
+      Navigator.of(context).pop();
+    }
+  }
+
+  Future<void> negatedCompound(bool ok) async {
+    await Future<void>.value();
+    if (!ok || !mounted) return;
+    setState(() => flag = true);
+  }
+
+  @override
+  Widget build(BuildContext context) => const SizedBox.shrink();
+}

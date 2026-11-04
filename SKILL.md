@@ -9,7 +9,7 @@ description: >
   or refactoring Flutter UI and logic, optimizing frame rates, fixing memory leaks,
   or auditing Flutter projects. Do NOT use for non-Flutter native mobile projects
   (pure Swift/Kotlin/React Native) or standalone backend Dart servers.
-allowed-tools: [Read, Write, Edit, Glob, Grep, Bash]
+allowed-tools: Read Write Edit Glob Grep Bash
 ---
 
 # Flutter Ultimate Architecture & Engineering
@@ -23,7 +23,7 @@ physics-driven motion, and enforce native GDPR/RODO privacy defaults.
 
 ## 1. Architectural Tenets & The 3-Tier Model
 
-All Flutter engineering under this skill follows the **Open Agent Skills 2026 Three-Tier Architecture**:
+All Flutter engineering under this skill follows the three-level progressive disclosure of the **Agent Skills** format (agentskills.io):
 1. **Tier 1 (Catalog Routing)**: Compact frontmatter for immediate intent matching.
 2. **Tier 2 (Operational Flow - This File)**: High-level execution workflows, decision matrices, and safety checklists (under 450 lines).
 3. **Tier 3 (Deep Knowledge & Executables)**:
@@ -53,8 +53,11 @@ Consult deep reference guides for concrete catalogs, syntax blueprints, and edge
 | **Dart 3 & Architecture** | `references/dart3-and-architecture.md` | 4-tier state selection ladder, Dart 3 sealed class models, records, pattern matching, immutable data pipelines, and Clean Architecture boundaries. |
 | **Production Stack** | `references/production-stack.md` | `go_router` (StatefulShellRoute, auth guards), `flutter_bloc` (transformers, boundaries), `flutter_secure_storage` (hardware keystores), and `hive` (encrypted & LazyBox bounds). |
 | **Platform, Privacy & Security** | `references/platform-and-security.md` | RODO/GDPR native tracking toggles in AndroidManifest.xml and Info.plist, keyboard insets, SafeArea layout rules, and biometric storage. |
+| **Advanced Framework Patterns** | `references/advanced-framework-patterns.md` | Decision tables with trust labels: constraints-driven layout, `AnimatedSwitcher`, selectors, keep-alive / `PageStorageKey` / restoration, `TickerMode`, `Future.wait`, isolates, `InheritedModel`, `RawGestureDetector`. |
 | **Linter Configuration** | `assets/analysis_options.yaml` | Production-grade compiler and linter rules enforcing strict typing, const propagation, and resource disposal checks. |
 | **Deterministic Audit** | `scripts/audit-flutter.ps1`<br>`scripts/audit-flutter.sh` | Automated static analysis scripts running deterministic pattern detection for active core rules (P03, P07, P12, P19, P21, P26, P27, P32, K01, W01, W03, W06, W14, LINT, GDPR). |
+
+Load `advanced-framework-patterns.md` when the task names one of those mechanisms or you must choose between them; read only the section its tables point to. Do not load it for ordinary widget edits.
 
 ---
 
@@ -128,6 +131,18 @@ Activate this mode when designing a new feature, screen, or domain module prior 
 ## 4. Execution Mode 2: Construction Mode
 
 Activate this mode when authoring or refactoring Flutter widgets, business logic, or animation routines.
+
+### Step 0: Signature of Skill-Driven Changes
+Every edit to the user's code that this skill causes (a fix after review, a remediation after audit, a refactor forced by a rule) gets a comment directly above the changed line or block:
+
+```dart
+// flutter-ultimate: W03 cancel the subscription in dispose(); it retained the State after pop
+_sub?.cancel();
+```
+
+Format: `// flutter-ultimate: <TRAP_ID> <what changed and why>`. This is distinct from `// flutter-ultimate:ignore`, which silences the audit.
+The reader must be able to find every skill-driven change in the diff and revert it on its own.
+Observations about the user's project are reported as proposals in the final message, never written into `SKILL.md` or `references/` during the task.
 
 ### Step 1: Widget Construction Reflexes (60/120 FPS Pipeline)
 - **Aggressive Const Propagation**: Prefix every unchanging widget with `const` to bypass element reconciliation.
@@ -241,7 +256,8 @@ powershell -ExecutionPolicy Bypass -File scripts/audit-flutter.ps1 -Json
 1. Fix all **CRITICAL** memory leaks: add missing `dispose()` overrides for controllers, stream subscriptions, and listeners.
 2. Fix all **CRITICAL** context traps: insert `if (!context.mounted) return;` after every `await`.
 3. Fix all **HIGH** performance traps: extract large builder methods into separate `StatelessWidget` classes; insert `const` constructors; wrap isolated animations in `RepaintBoundary`.
-4. Re-run `scripts/audit-flutter.ps1` or `scripts/audit-flutter.sh` until exit code is 0.
+4. Sign every applied fix with `// flutter-ultimate: <TRAP_ID> <reason>` (see Construction Mode, Step 0).
+5. Re-run `scripts/audit-flutter.ps1` or `scripts/audit-flutter.sh` until exit code is 0.
 
 ### Step 5: Dedicated Slash Commands (/flutter-ultimate:flutter-review & /flutter-ultimate:flutter-audit)
 Two slash commands ship with the plugin. Claude Code prefixes plugin commands with the plugin name, so they are invoked exactly as shown:

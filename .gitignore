@@ -1,0 +1,19 @@
+# OS metadata
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE & Editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Runtime & Temporary files
+*.tmp
+*.log
+.flutter-active
+
+# Build outputs
+build/
+.dart_tool/

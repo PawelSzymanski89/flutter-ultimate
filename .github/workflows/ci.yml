@@ -8,13 +8,56 @@ on:
   workflow_dispatch:
 
 jobs:
+  shellcheck:
+    name: ShellCheck Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run ShellCheck
+        run: |
+          shellcheck scripts/*.sh hooks/*.sh test/*.sh
+
+  validate-plugin:
+    name: Plugin Packaging & Schema
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate Plugin Packaging
+        run: |
+          node -e '
+            const fs = require("fs");
+            const plugin = JSON.parse(fs.readFileSync(".claude-plugin/plugin.json", "utf8"));
+            if (!plugin.name || !plugin.version) throw new Error("Missing name or version in plugin.json");
+            if (!plugin.commands || !plugin.commands.includes("commands/flutter-audit.md")) {
+              throw new Error("Missing flutter-audit in plugin.json commands");
+            }
+            if (!plugin.commands || !plugin.commands.includes("commands/flutter-review.md")) {
+              throw new Error("Missing flutter-review in plugin.json commands");
+            }
+            if (!fs.existsSync("skills/flutter-ultimate/SKILL.md")) {
+              throw new Error("skills/flutter-ultimate/SKILL.md does not exist");
+            }
+            if (!fs.existsSync("commands/flutter-audit.md")) {
+              throw new Error("commands/flutter-audit.md does not exist");
+            }
+            if (!fs.existsSync("commands/flutter-review.md")) {
+              throw new Error("commands/flutter-review.md does not exist");
+            }
+            console.log("Plugin manifest and structure valid:", plugin.name, plugin.version);
+          '
+
   test-unix:
     name: Test on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    needs: [ shellcheck, validate-plugin ]
     strategy:
       fail-fast: false
       matrix:
-        os: [ ubuntu-latest, macos-latest ]
+        os: [ ubuntu-latest, macos-13, macos-latest ]
 
     steps:
       - name: Checkout repository
@@ -24,19 +67,31 @@ jobs:
         run: |
           chmod +x scripts/*.sh hooks/*.sh test/*.sh
 
-      - name: Run test suite (Bash)
+      - name: Inspect environment and Bash version
+        run: |
+          echo "OS: ${{ matrix.os }}"
+          echo "System /bin/bash version: $(/bin/bash --version | head -n 1)"
+          echo "Default bash version: $(bash --version | head -n 1)"
+
+      - name: Run test suite with system /bin/bash (Bash 3.2 on macOS)
+        run: |
+          /bin/bash ./test/run_tests.sh
+
+      - name: Run test suite with default PATH bash
+        if: runner.os != 'macOS'
         run: |
           ./test/run_tests.sh
 
   test-windows:
     name: Test on windows-latest
     runs-on: windows-latest
+    needs: [ shellcheck, validate-plugin ]
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Run test suite (PowerShell)
+      - name: Run test suite (PowerShell & Cross-Platform Parity)
         shell: pwsh
         run: |
           ./test/run_tests.ps1

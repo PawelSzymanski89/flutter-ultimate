@@ -114,6 +114,8 @@ Under the General Data Protection Regulation (GDPR / RODO - Art. 6, 7) and the e
 
 *Note: Disabling SDK collection flags provides privacy-oriented technical defaults at the manifest level. It is a necessary technical measure, but does not on its own certify complete legal compliance, which requires verified consent banners, privacy policies, data retention terms, and legal review.*
 
+*Static Audit Note: The static analyzers (`scripts/audit-flutter.*`, rules `GDPR-01` through `GDPR-04`) check for these flags **strictly conditionally**: only when `firebase_analytics` or `firebase_crashlytics` are declared in the project's `pubspec.yaml`. Projects that do not integrate Firebase are not penalized.*
+
 ### 2.1 Native Configuration Requirements
 
 #### Android Configuration: `android/app/src/main/AndroidManifest.xml`

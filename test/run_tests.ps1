@@ -2,8 +2,9 @@
 .SYNOPSIS
     Test runner for Flutter Ultimate Skill and Static Code Analyzer.
 .DESCRIPTION
-    Validates SKILL.md specification limits and executes test fixtures
-    (positive, negative, suppression) against audit-flutter.ps1 and audit-flutter.sh.
+    Validates SKILL.md specification limits, Claude Code plugin packaging,
+    CLI contracts, single-finding JSON array schema, fixtures (positive, negative, suppression),
+    and cross-platform Bash <-> PowerShell JSON output parity.
 #>
 
 $ErrorActionPreference = "Stop"
@@ -27,12 +28,12 @@ function Report-Assert($Name, [bool]$Condition, $Details = "") {
 }
 
 Write-Host "=================================================="
-Write-Host " Flutter Ultimate Test Suite"
+Write-Host " Flutter Ultimate Test Suite (PowerShell)"
 Write-Host " Project: $ProjectRoot"
 Write-Host "=================================================="
 
-# 1. Validate SKILL.md Specification
-Write-Host "`n[1/4] Validating SKILL.md Specification..." -ForegroundColor Cyan
+# 1. Validate SKILL.md & Plugin Architecture
+Write-Host "`n[1/6] Validating SKILL.md & Plugin Architecture..." -ForegroundColor Cyan
 $SkillPath = Join-Path $ProjectRoot "SKILL.md"
 if (-not (Test-Path $SkillPath)) {
     Report-Assert "SKILL.md exists" $false "File not found at $SkillPath"
@@ -55,13 +56,33 @@ if (-not (Test-Path $SkillPath)) {
     if ($HasFrontmatter) {
         Report-Assert "SKILL.md has name: flutter-ultimate" ($SkillContent -match "name:\s*flutter-ultimate")
         Report-Assert "SKILL.md has description" ($SkillContent -match "description:\s*.+")
+        Report-Assert "allowed-tools does not contain PowerShell" (-not ($SkillContent -match "allowed-tools:.*PowerShell"))
     }
 }
 
-# 2. Test audit-flutter.ps1 on Positive Fixture
-Write-Host "`n[2/4] Testing audit-flutter.ps1 Positive Fixture..." -ForegroundColor Cyan
-$PositiveDir = Join-Path $ProjectRoot "test\fixtures\positive"
+# Validate Plugin Packaging files
+$PluginManifest = Join-Path $ProjectRoot ".claude-plugin\plugin.json"
+$PluginSkill = Join-Path $ProjectRoot "skills\flutter-ultimate\SKILL.md"
+$CmdAudit = Join-Path $ProjectRoot "commands\flutter-audit.md"
+$CmdReview = Join-Path $ProjectRoot "commands\flutter-review.md"
+
+Report-Assert "plugin.json exists" (Test-Path $PluginManifest)
+Report-Assert "skills/flutter-ultimate/SKILL.md exists" (Test-Path $PluginSkill)
+Report-Assert "commands/flutter-audit.md exists" (Test-Path $CmdAudit)
+Report-Assert "commands/flutter-review.md exists" (Test-Path $CmdReview)
+
+# 2. Test CLI Contract & Error Handling
+Write-Host "`n[2/6] Testing CLI Contract & Error Handling..." -ForegroundColor Cyan
 $AuditPs1 = Join-Path $ProjectRoot "scripts\audit-flutter.ps1"
+
+$NonExistentDir = Join-Path $ProjectRoot "non_existent_directory"
+$InvOutput = & $AuditPs1 -Target $NonExistentDir -Json 2>&1
+$InvExit = $LASTEXITCODE
+Report-Assert "Non-existent target directory exits with code 2" ($InvExit -eq 2) "Actual exit code: $InvExit"
+
+# 3. Test audit-flutter.ps1 on Positive Fixture
+Write-Host "`n[3/6] Testing audit-flutter.ps1 Positive Fixture..." -ForegroundColor Cyan
+$PositiveDir = Join-Path $ProjectRoot "test\fixtures\positive"
 
 $PosOutput = & $AuditPs1 -Target $PositiveDir -Json 2>&1
 $PosExit = $LASTEXITCODE
@@ -85,37 +106,95 @@ try {
     Report-Assert "Positive fixture returns valid JSON" $false $_.Exception.Message
 }
 
-# 3. Test audit-flutter.ps1 on Negative Fixture
-Write-Host "`n[3/4] Testing audit-flutter.ps1 Negative Fixture..." -ForegroundColor Cyan
+# 4. Test Single-Finding JSON Array Contract & Strict Mode
+Write-Host "`n[4/6] Testing Single-Finding JSON Array Contract & Strict Mode..." -ForegroundColor Cyan
+$SingleDir = Join-Path $ProjectRoot "test\fixtures\single"
+$SingleOutput = & $AuditPs1 -Target $SingleDir -Json 2>&1
+$SingleExit = $LASTEXITCODE
+Report-Assert "Single finding (MEDIUM) without -Strict returns exit code 0" ($SingleExit -eq 0) "Actual exit code: $SingleExit"
+
+$SingleStrictOutput = & $AuditPs1 -Target $SingleDir -Json -Strict 2>&1
+$SingleStrictExit = $LASTEXITCODE
+Report-Assert "Single finding with -Strict returns exit code 1" ($SingleStrictExit -eq 1) "Actual exit code: $SingleStrictExit"
+
+$SingleStr = ($SingleOutput -join "`n").Trim()
+$IsArrayFormat = ($SingleStr.StartsWith("[") -and $SingleStr.EndsWith("]"))
+Report-Assert "Single finding outputs valid JSON array [{...}]" $IsArrayFormat "Output: $SingleStr"
+
+try {
+    $SingleJson = $SingleOutput | ConvertFrom-Json
+    Report-Assert "Single finding JSON has exactly 1 element" ($SingleJson.Count -eq 1) "Count: $($SingleJson.Count)"
+} catch {
+    Report-Assert "Single finding JSON parse" $false $_.Exception.Message
+}
+
+# 5. Test Negative & Suppression Fixtures
+Write-Host "`n[5/6] Testing Negative & Suppression Fixtures..." -ForegroundColor Cyan
 $NegativeDir = Join-Path $ProjectRoot "test\fixtures\negative"
 $NegOutput = & $AuditPs1 -Target $NegativeDir -Json 2>&1
 $NegExit = $LASTEXITCODE
 Report-Assert "Negative fixture returns exit code 0 (clean code)" ($NegExit -eq 0) "Actual exit code: $NegExit"
 
-$NegCount = 0
-if ($NegOutput) {
-    try {
-        $NegJson = $NegOutput | ConvertFrom-Json
-        $NegCount = if ($NegJson) { $NegJson.Count } else { 0 }
-    } catch {}
-}
-Report-Assert "Negative fixture has 0 findings" ($NegCount -eq 0) "Findings detected: $NegCount"
+$NegStr = ($NegOutput -join "`n").Trim()
+Report-Assert "Negative fixture returns strict '[]'" ($NegStr -eq "[]") "Output: $NegStr"
 
-# 4. Test audit-flutter.ps1 on Suppression Fixture
-Write-Host "`n[4/4] Testing audit-flutter.ps1 Suppression Fixture..." -ForegroundColor Cyan
 $SuppressionDir = Join-Path $ProjectRoot "test\fixtures\suppression"
 $SupOutput = & $AuditPs1 -Target $SuppressionDir -Json 2>&1
 $SupExit = $LASTEXITCODE
 Report-Assert "Suppression fixture returns exit code 0 (suppressed code)" ($SupExit -eq 0) "Actual exit code: $SupExit"
 
-$SupCount = 0
-if ($SupOutput) {
-    try {
-        $SupJson = $SupOutput | ConvertFrom-Json
-        $SupCount = if ($SupJson) { $SupJson.Count } else { 0 }
-    } catch {}
+$SupStr = ($SupOutput -join "`n").Trim()
+Report-Assert "Suppression fixture returns strict '[]'" ($SupStr -eq "[]") "Output: $SupStr"
+
+# 6. Test Bash <-> PowerShell Cross-Platform JSON Parity
+Write-Host "`n[6/6] Testing Bash <-> PowerShell Cross-Platform Parity..." -ForegroundColor Cyan
+$BashExe = if (Get-Command bash -ErrorAction SilentlyContinue) {
+    (Get-Command bash).Source
+} elseif (Test-Path "C:\Program Files\Git\bin\bash.exe") {
+    "C:\Program Files\Git\bin\bash.exe"
+} else {
+    $null
 }
-Report-Assert "Suppression fixture has 0 findings" ($SupCount -eq 0) "Findings detected: $SupCount"
+
+if ($BashExe) {
+    $AuditSh = Join-Path $ProjectRoot "scripts\audit-flutter.sh"
+    $BashAuditShPath = ($AuditSh -replace '\\', '/')
+    $BashPosPath = ($PositiveDir -replace '\\', '/')
+
+    $BashOutput = & $BashExe $BashAuditShPath --target $BashPosPath --json 2>&1
+
+    try {
+        $BashJson = $BashOutput | ConvertFrom-Json
+        $PsNorm = $PosJson | ForEach-Object {
+            [PSCustomObject]@{
+                severity = $_.severity
+                trapId = $_.trapId
+                file = ($_.file -replace '\\', '/')
+                line = [int]$_.line
+                message = $_.message
+            }
+        } | Sort-Object trapId, file, line
+
+        $BashNorm = $BashJson | ForEach-Object {
+            [PSCustomObject]@{
+                severity = $_.severity
+                trapId = $_.trapId
+                file = ($_.file -replace '\\', '/')
+                line = [int]$_.line
+                message = $_.message
+            }
+        } | Sort-Object trapId, file, line
+
+        Report-Assert "Both scanners report identical findings count (18)" ($PsNorm.Count -eq $BashNorm.Count -and $PsNorm.Count -eq 18) "PS: $($PsNorm.Count), Bash: $($BashNorm.Count)"
+
+        $Diff = Compare-Object $PsNorm $BashNorm -Property severity, trapId, file, line, message
+        Report-Assert "Zero discrepancies in severity, trapId, file, line, message" ($null -eq $Diff)
+    } catch {
+        Report-Assert "Bash JSON output parsing" $false $_.Exception.Message
+    }
+} else {
+    Write-Host "  [SKIP] Bash executable not found; skipping cross-platform parity assertion" -ForegroundColor Yellow
+}
 
 # Summary
 Write-Host "`n=================================================="

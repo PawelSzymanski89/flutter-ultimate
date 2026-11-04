@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 
 class CleanHeaderWidget extends StatelessWidget {
   const CleanHeaderWidget({super.key});
@@ -7,6 +8,19 @@ class CleanHeaderWidget extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return const Text('Clean Header');
+  }
+}
+
+// Regression: Custom RenderBox methods with Intrinsic substring must not trigger P21
+class CustomRenderBox extends RenderBox {
+  @override
+  double computeMinIntrinsicHeight(double width) {
+    return 50.0;
+  }
+
+  @override
+  double getMaxIntrinsicWidth(double height) {
+    return 100.0;
   }
 }
 
@@ -41,6 +55,12 @@ class _CleanTestWidgetState extends State<CleanTestWidget> with SingleTickerProv
     Navigator.of(context).pop();
   }
 
+  Future<void> performSafeSetState() async {
+    await Future.delayed(const Duration(milliseconds: 50));
+    if (!mounted) return;
+    setState(() {});
+  }
+
   @override
   Widget build(BuildContext context) {
     // Uses selective MediaQuery.sizeOf
@@ -52,6 +72,20 @@ class _CleanTestWidgetState extends State<CleanTestWidget> with SingleTickerProv
         FutureBuilder<int>(
           future: _cachedFuture,
           builder: (context, snapshot) => Text('$size ${_staticPaint.color}'),
+        ),
+        // Regression: AnimatedOpacity and SliverOpacity must not trigger P26
+        AnimatedOpacity(
+          opacity: 1.0,
+          duration: const Duration(milliseconds: 300),
+          child: const Text('Animated Faded'),
+        ),
+        CustomScrollView(
+          slivers: [
+            SliverOpacity(
+              opacity: 0.8,
+              sliver: const SliverToBoxAdapter(child: Text('Sliver')),
+            ),
+          ],
         ),
       ],
     );

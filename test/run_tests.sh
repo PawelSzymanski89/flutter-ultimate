@@ -39,8 +39,8 @@ echo " Flutter Ultimate Test Suite (Bash 3.2+)"
 echo " Project: $PROJECT_ROOT"
 echo "=================================================="
 
-# 1. Validate SKILL.md Specification
-printf "\n${CYAN}[1/4] Validating SKILL.md Specification...${NC}\n"
+# 1. Validate SKILL.md & Claude Code Plugin Architecture
+printf "\n${CYAN}[1/5] Validating SKILL.md & Plugin Architecture...${NC}\n"
 SKILL_PATH="$PROJECT_ROOT/SKILL.md"
 
 if [[ ! -f "$SKILL_PATH" ]]; then
@@ -83,12 +83,46 @@ else
   else
     report_assert "SKILL.md has description" 0 "Missing description frontmatter"
   fi
+
+  # PowerShell removed from allowed-tools
+  if grep -q "allowed-tools:.*PowerShell" "$SKILL_PATH"; then
+    report_assert "allowed-tools does not contain PowerShell" 0 "PowerShell found in allowed-tools"
+  else
+    report_assert "allowed-tools does not contain PowerShell" 1 ""
+  fi
 fi
 
-# 2. Test audit-flutter.sh on Positive Fixture
-printf "\n${CYAN}[2/4] Testing audit-flutter.sh Positive Fixture...${NC}\n"
-POS_DIR="$PROJECT_ROOT/test/fixtures/positive"
+# Validate Plugin Packaging
+PLUGIN_MANIFEST="$PROJECT_ROOT/.claude-plugin/plugin.json"
+PLUGIN_SKILL="$PROJECT_ROOT/skills/flutter-ultimate/SKILL.md"
+CMD_AUDIT="$PROJECT_ROOT/commands/flutter-audit.md"
+CMD_REVIEW="$PROJECT_ROOT/commands/flutter-review.md"
+
+[[ -f "$PLUGIN_MANIFEST" ]] && report_assert "plugin.json exists" 1 "" || report_assert "plugin.json exists" 0 ""
+[[ -f "$PLUGIN_SKILL" ]] && report_assert "skills/flutter-ultimate/SKILL.md exists" 1 "" || report_assert "skills/flutter-ultimate/SKILL.md exists" 0 ""
+[[ -f "$CMD_AUDIT" ]] && report_assert "commands/flutter-audit.md exists" 1 "" || report_assert "commands/flutter-audit.md exists" 0 ""
+[[ -f "$CMD_REVIEW" ]] && report_assert "commands/flutter-review.md exists" 1 "" || report_assert "commands/flutter-review.md exists" 0 ""
+
+# 2. Test CLI Contract & Error Handling
+printf "\n${CYAN}[2/5] Testing CLI Contract & Error Handling...${NC}\n"
 AUDIT_SH="$PROJECT_ROOT/scripts/audit-flutter.sh"
+
+set +e
+unk_out=$("$AUDIT_SH" --unknown-option 2>&1)
+unk_exit=$?
+mis_out=$("$AUDIT_SH" --target 2>&1)
+mis_exit=$?
+non_out=$("$AUDIT_SH" --target "$PROJECT_ROOT/non_existent_directory" 2>&1)
+non_exit=$?
+set -e
+
+report_assert "Unknown CLI option exits with code 2" $(( unk_exit == 2 ? 1 : 0 )) "Exit: $unk_exit"
+report_assert "Missing --target argument exits with code 2" $(( mis_exit == 2 ? 1 : 0 )) "Exit: $mis_exit"
+report_assert "Non-existent target directory exits with code 2" $(( non_exit == 2 ? 1 : 0 )) "Exit: $non_exit"
+
+# 3. Test audit-flutter.sh on Positive Fixture
+printf "\n${CYAN}[3/5] Testing audit-flutter.sh Positive Fixture...${NC}\n"
+POS_DIR="$PROJECT_ROOT/test/fixtures/positive"
 
 set +e
 pos_output=$("$AUDIT_SH" --target "$POS_DIR" --json 2>&1)
@@ -115,8 +149,30 @@ for trap_id in "${expected_traps[@]}"; do
   fi
 done
 
-# 3. Test audit-flutter.sh on Negative Fixture
-printf "\n${CYAN}[3/4] Testing audit-flutter.sh Negative Fixture...${NC}\n"
+# 4. Test Single-Finding Contract & Strict Mode
+printf "\n${CYAN}[4/6] Testing Single-Finding JSON Array Contract & Strict Mode...${NC}\n"
+SINGLE_DIR="$PROJECT_ROOT/test/fixtures/single"
+
+set +e
+single_output=$("$AUDIT_SH" --target "$SINGLE_DIR" --json 2>&1)
+single_exit=$?
+single_strict_output=$("$AUDIT_SH" --target "$SINGLE_DIR" --json --strict 2>&1)
+single_strict_exit=$?
+set -e
+
+report_assert "Single finding (MEDIUM) without --strict exits with code 0" $(( single_exit == 0 ? 1 : 0 )) "Exit: $single_exit"
+report_assert "Single finding with --strict exits with code 1" $(( single_strict_exit == 1 ? 1 : 0 )) "Exit: $single_strict_exit"
+
+# Validate that single finding outputs a valid JSON array enclosing an object
+is_json_array=0
+case "$single_output" in
+  \[*\{\"*\"*\}*\]) is_json_array=1 ;;
+  *) is_json_array=0 ;;
+esac
+report_assert "Single finding outputs valid JSON array [{...}]" "$is_json_array" "Output: $single_output"
+
+# 5. Test Negative & Suppression Fixtures
+printf "\n${CYAN}[5/6] Testing Negative & Suppression Fixtures...${NC}\n"
 NEG_DIR="$PROJECT_ROOT/test/fixtures/negative"
 
 set +e
@@ -124,37 +180,43 @@ neg_output=$("$AUDIT_SH" --target "$NEG_DIR" --json 2>&1)
 neg_exit=$?
 set -e
 
-if (( neg_exit == 0 )); then
-  report_assert "Negative fixture returns exit code 0" 1 ""
-else
-  report_assert "Negative fixture returns exit code 0" 0 "Actual exit: $neg_exit"
-fi
+report_assert "Negative fixture returns exit code 0" $(( neg_exit == 0 ? 1 : 0 )) "Actual exit: $neg_exit"
+is_strict_empty=0
+[[ "$neg_output" == "[]" ]] && is_strict_empty=1
+report_assert "Negative fixture returns strict '[]' (not empty stdout)" "$is_strict_empty" "Output: $neg_output"
 
-if [[ -z "$neg_output" ]] || [[ "$neg_output" =~ ^\[[[:space:]]*\]$ ]]; then
-  report_assert "Negative fixture has 0 findings" 1 ""
-else
-  report_assert "Negative fixture has 0 findings" 0 "Unexpected findings detected: $neg_output"
-fi
-
-# 4. Test audit-flutter.sh on Suppression Fixture
-printf "\n${CYAN}[4/4] Testing audit-flutter.sh Suppression Fixture...${NC}\n"
 SUP_DIR="$PROJECT_ROOT/test/fixtures/suppression"
-
 set +e
 sup_output=$("$AUDIT_SH" --target "$SUP_DIR" --json 2>&1)
 sup_exit=$?
 set -e
 
-if (( sup_exit == 0 )); then
-  report_assert "Suppression fixture returns exit code 0" 1 ""
-else
-  report_assert "Suppression fixture returns exit code 0" 0 "Actual exit: $sup_exit"
+report_assert "Suppression fixture returns exit code 0" $(( sup_exit == 0 ? 1 : 0 )) "Actual exit: $sup_exit"
+is_sup_empty=0
+[[ "$sup_output" == "[]" ]] && is_sup_empty=1
+report_assert "Suppression fixture returns strict '[]' (not empty stdout)" "$is_sup_empty" "Output: $sup_output"
+
+# 6. Test Bash <-> PowerShell Cross-Platform Parity
+printf "\n${CYAN}[6/6] Testing Bash <-> PowerShell Cross-Platform Parity...${NC}\n"
+PWSH_CMD=""
+if command -v pwsh >/dev/null 2>&1; then
+  PWSH_CMD="pwsh"
+elif command -v powershell.exe >/dev/null 2>&1; then
+  PWSH_CMD="powershell.exe"
 fi
 
-if [[ -z "$sup_output" ]] || [[ "$sup_output" =~ ^\[[[:space:]]*\]$ ]]; then
-  report_assert "Suppression fixture has 0 findings" 1 ""
+if [[ -n "$PWSH_CMD" ]]; then
+  AUDIT_PS1="$PROJECT_ROOT/scripts/audit-flutter.ps1"
+  set +e
+  ps_output=$("$PWSH_CMD" -NoProfile -ExecutionPolicy Bypass -File "$AUDIT_PS1" -Target "$POS_DIR" -Json 2>&1)
+  set -e
+
+  ps_count=$(echo "$ps_output" | grep -c '"trapId"' || true)
+  bash_count=$(echo "$pos_output" | grep -c '"trapId"' || true)
+
+  report_assert "Both scanners report identical findings count (18)" $(( ps_count == bash_count && bash_count == 18 ? 1 : 0 )) "PS: $ps_count, Bash: $bash_count"
 else
-  report_assert "Suppression fixture has 0 findings" 0 "Unexpected findings detected: $sup_output"
+  printf "  ${YELLOW}[SKIP]${NC} PowerShell not found; skipping cross-platform parity assertion\n"
 fi
 
 # Summary

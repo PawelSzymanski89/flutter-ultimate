@@ -199,7 +199,7 @@ Any synchronous CPU-bound Dart operation exceeding **2 ms** during an ongoing in
 * **Remediation**: Move frame registrations to `initState()` or `didUpdateWidget()`.
 
 #### P12. Eager `Future` or `Stream` Instantiation in `build()`
-* **Severity**: CRITICAL
+* **Severity**: HIGH
 * **Mechanism**: Creating a future inline (`future: api.fetchData()`) inside a `FutureBuilder` instantiates a new asynchronous operation every time the parent widget rebuilds. The `FutureBuilder` resets to `ConnectionState.waiting`, drops previous data, and overwhelms the network layer.
 * **Remediation**: Cache the `Future` in `initState()` or your state controller:
   ```dart

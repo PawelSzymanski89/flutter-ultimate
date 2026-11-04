@@ -9,7 +9,7 @@ description: >
   or refactoring Flutter UI and logic, optimizing frame rates, fixing memory leaks,
   or auditing Flutter projects. Do NOT use for non-Flutter native mobile projects
   (pure Swift/Kotlin/React Native) or standalone backend Dart servers.
-allowed-tools: [Read, Write, Edit, Glob, Grep, Bash, PowerShell]
+allowed-tools: [Read, Write, Edit, Glob, Grep, Bash]
 ---
 
 # Flutter Ultimate Architecture & Engineering
@@ -208,7 +208,7 @@ linter:
 ```
 Verify native privacy defaults in `android/app/src/main/AndroidManifest.xml` and `ios/Runner/Info.plist`:
 - Android: `firebase_analytics_collection_enabled = false` and `firebase_crashlytics_collection_enabled = false`.
-- iOS: `FirebaseAnalyticsCollectionEnabled = false` and `FirebaseCrashlyticsCollectionEnabled = false`.
+- iOS: `FIREBASE_ANALYTICS_COLLECTION_ENABLED = false` and `FirebaseCrashlyticsCollectionEnabled = false`.
 
 ### Step 2: Automated Static Audit Execution
 Run the cross-platform audit script from repository root:
@@ -271,7 +271,7 @@ When a detected pattern is intentional and verified safe, suppress the audit rul
 
 **Example:**
 ```dart
-// flutter-ultimate:ignore P12 Global controller intentionally lives for entire app lifecycle
+// flutter-ultimate:ignore W14 Global controller intentionally lives for entire app lifecycle
 final globalStore = StreamController<GlobalEvent>.broadcast();
 ```
 

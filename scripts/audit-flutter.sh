@@ -5,18 +5,56 @@
 # ==============================================================================
 set -euo pipefail
 
+usage() {
+  echo "Usage: $0 [--target <dir>] [--json] [--strict]" >&2
+  exit 2
+}
+
 TARGET_PATH="."
 JSON_MODE=false
 STRICT_MODE=false
 
-for arg in "$@"; do
-  case "$arg" in
-    --json) JSON_MODE=true ;;
-    --strict) STRICT_MODE=true ;;
-    -*) ;;
-    *) TARGET_PATH="$arg" ;;
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --target)
+      if [[ $# -lt 2 || -z "$2" || "$2" == -* ]]; then
+        echo "Error: --target requires a directory argument" >&2
+        usage
+      fi
+      TARGET_PATH="$2"
+      shift 2
+      ;;
+    --json)
+      JSON_MODE=true
+      shift
+      ;;
+    --strict)
+      STRICT_MODE=true
+      shift
+      ;;
+    -h|--help)
+      usage
+      ;;
+    -*)
+      echo "Error: Unknown option '$1'" >&2
+      usage
+      ;;
+    *)
+      if [[ "$TARGET_PATH" == "." ]]; then
+        TARGET_PATH="$1"
+        shift
+      else
+        echo "Error: Unexpected positional argument '$1'" >&2
+        usage
+      fi
+      ;;
   esac
 done
+
+if [[ ! -d "$TARGET_PATH" ]]; then
+  echo "Error: Target directory '$TARGET_PATH' does not exist" >&2
+  exit 2
+fi
 
 TARGET_DIR="$(cd "$TARGET_PATH" && pwd)"
 FINDINGS=()
@@ -41,10 +79,26 @@ json_escape() {
   printf '%s' "$s"
 }
 
+is_suppressed() {
+  local target_line="$1"
+  local trap="$2"
+  if (( target_line > 1 )); then
+    local prev="${lines[$((target_line - 2))]}"
+    if [[ "$prev" =~ //[[:space:]]*flutter-ultimate:ignore[[:space:]]+$trap ]]; then
+      return 0
+    fi
+  fi
+  return 1
+}
+
 # 1. Scan Dart Files
 while IFS= read -r file; do
   [[ -z "$file" ]] && continue
-  [[ "$file" =~ (\.dart_tool|build|\.git|\.g\.dart|\.freezed\.dart) ]] && continue
+  rel_file="${file#$TARGET_DIR/}"
+  if [[ "$rel_file" =~ (^|[\\/])(build|\.dart_tool|\.git)([\\/]|$) ]] || \
+     [[ "$file" =~ \.(g|freezed)\.dart$ ]]; then
+    continue
+  fi
 
   lines=()
   while IFS= read -r l || [[ -n "$l" ]]; do
@@ -55,18 +109,6 @@ while IFS= read -r file; do
 
   in_build_or_paint=false
   brace_depth=0
-
-  is_suppressed() {
-    local target_line="$1"
-    local trap="$2"
-    if (( target_line > 1 )); then
-      local prev="${lines[$((target_line - 2))]}"
-      if [[ "$prev" =~ //[[:space:]]*flutter-ultimate:ignore[[:space:]]+$trap ]]; then
-        return 0
-      fi
-    fi
-    return 1
-  }
 
   for ((i=0; i<total_lines; i++)); do
     line="${lines[$i]}"
@@ -96,19 +138,43 @@ while IFS= read -r file; do
 
     # K01: Unprotected BuildContext across async gap
     if [[ "$line" =~ (^|[[:space:]])await[[:space:]]+ ]]; then
-      next_chunk=""
-      for ((j=i+1; j<i+7 && j<total_lines; j++)); do
-        next_chunk+="${lines[$j]}"$'\n'
-      done
-      if [[ "$next_chunk" =~ (Navigator\.of|ScaffoldMessenger\.of|Theme\.of|MediaQuery\.of)[[:space:]]*\([[:space:]]*context ]] || \
-         [[ "$next_chunk" =~ context\.(read|watch|select|push|pop|go) ]]; then
-        if ! [[ "$next_chunk" =~ if[[:space:]]*\([[:space:]]*!?[[:space:]]*(context\.)?mounted ]] && \
-           ! [[ "$next_chunk" =~ mounted\? ]]; then
-          if ! is_suppressed "$line_num" "K01"; then
-            add_finding "$file" "$line_num" "CRITICAL" "K01" "BuildContext used across async gap without 'if (!context.mounted) return;' guard."
-          fi
+      guarded=false
+      for ((j=i+1; j<i+15 && j<total_lines; j++)); do
+        f_line="${lines[$j]}"
+        f_line_num=$((j + 1))
+        # End of scope/method boundary check
+        if [[ "$f_line" =~ ^[[:space:]]*\} ]] || [[ "$f_line" =~ ^[[:space:]]*(Widget|void|Future[<[:space:]]) ]]; then
+          break
         fi
-      fi
+        # Check for legitimate mounted guards that stop execution
+        guard_pat1='if[[:space:]]*\([[:space:]]*!?[[:space:]]*(context\.)?mounted[[:space:]]*\)[[:space:]]*return'
+        guard_pat2='if[[:space:]]*\([[:space:]]*(context\.)?mounted[[:space:]]*\)'
+        if [[ "$f_line" =~ $guard_pat1 ]] || [[ "$f_line" =~ $guard_pat2 ]]; then
+          guarded=true
+          break
+        fi
+
+        # Dangerous usages after await
+        danger_op=""
+        if [[ "$f_line" =~ setState[[:space:]]*\( ]]; then
+          danger_op="setState()"
+        elif [[ "$f_line" =~ Navigator\.(push|pop|of)[[:space:]]*\( ]]; then
+          danger_op="Navigator"
+        elif [[ "$f_line" =~ (showDialog|showModalBottomSheet)[[:space:]]*\( ]]; then
+          danger_op="Dialog"
+        elif [[ "$f_line" =~ (ScaffoldMessenger\.of|Theme\.of|MediaQuery\.of)[[:space:]]*\([[:space:]]*context ]]; then
+          danger_op="Context theme/messenger lookup"
+        elif [[ "$f_line" =~ context\.(read|watch|select|push|pop|go) ]]; then
+          danger_op="context extension method"
+        fi
+
+        if [[ -n "$danger_op" && "$guarded" = false ]]; then
+          if ! is_suppressed "$f_line_num" "K01" && ! is_suppressed "$line_num" "K01"; then
+            add_finding "$file" "$f_line_num" "CRITICAL" "K01" "BuildContext ($danger_op) used across async gap without 'if (!context.mounted) return;' guard."
+          fi
+          break
+        fi
+      done
     fi
 
     # P03: Helper _buildX() methods instead of dedicated StatelessWidget
@@ -138,34 +204,34 @@ while IFS= read -r file; do
     # P12: Eager Future/Stream instantiation inside build()
     if [[ "$line" =~ (future|stream):[[:space:]]*[A-Za-z0-9_]+\.[A-Za-z0-9_]+[[:space:]]*\( ]]; then
       if ! is_suppressed "$line_num" "P12"; then
-        add_finding "$file" "$line_num" "CRITICAL" "P12" "Eager asynchronous call inside builder resets on every rebuild. Cache Future/Stream in initState."
+        add_finding "$file" "$line_num" "HIGH" "P12" "Eager asynchronous call inside builder resets on every rebuild. Cache Future/Stream in initState or state holder."
       fi
     fi
 
     # P19: Potentially expensive shrinkWrap
-    if [[ "$line" =~ shrinkWrap:[[:space:]]*true ]]; then
+    if [[ "$line" =~ (^|[^A-Za-z0-9_])shrinkWrap:[[:space:]]*true ]]; then
       if ! is_suppressed "$line_num" "P19"; then
         add_finding "$file" "$line_num" "HIGH" "P19" "shrinkWrap: true triggers expensive layout passes when nested in scrollables. Consider CustomScrollView with Slivers for unbounded lists."
       fi
     fi
 
     # P21: Quadratic Multi-Pass Layout with IntrinsicHeight / IntrinsicWidth
-    if [[ "$line" =~ Intrinsic(Height|Width)[[:space:]]*\( ]]; then
-      dimension="${BASH_REMATCH[1]}"
+    if [[ "$line" =~ (^|[^A-Za-z0-9_])Intrinsic(Height|Width)[[:space:]]*\( ]]; then
+      dimension="${BASH_REMATCH[2]}"
       if ! is_suppressed "$line_num" "P21"; then
         add_finding "$file" "$line_num" "HIGH" "P21" "Intrinsic$dimension forces speculative layout passes. Profile layout cost or use bounded layout constraints."
       fi
     fi
 
-    # P26: Opacity widget
-    if [[ "$line" =~ Opacity[[:space:]]*\( ]]; then
+    # P26: Opacity widget (word boundary to avoid AnimatedOpacity or SliverOpacity)
+    if [[ "$line" =~ (^|[^A-Za-z0-9_])Opacity[[:space:]]*\( ]]; then
       if ! is_suppressed "$line_num" "P26"; then
         add_finding "$file" "$line_num" "MEDIUM" "P26" "Opacity widget may introduce an offscreen compositing pass. For simple items use color alpha; for animations use FadeTransition."
       fi
     fi
 
     # P27: ClipRRect
-    if [[ "$line" =~ ClipRRect[[:space:]]*\( ]]; then
+    if [[ "$line" =~ (^|[^A-Za-z0-9_])ClipRRect[[:space:]]*\( ]]; then
       if ! is_suppressed "$line_num" "P27"; then
         add_finding "$file" "$line_num" "LOW" "P27" "ClipRRect introduces clipping overhead. Prefer BoxDecoration(borderRadius: ...) where clipping child content is not required."
       fi
@@ -194,13 +260,13 @@ while IFS= read -r file; do
         line_idx=$(echo "$match_line" | cut -d: -f1)
         var_name=$(echo "$match_line" | sed -E 's/^[0-9]+:[[:space:]]*//; s/[[:space:]]*=.*//; s/.*[[:space:]]+//')
         if [[ -n "$var_name" ]]; then
-          if ! grep -qE "\b$var_name\.dispose[[:space:]]*\(" "$file"; then
+          if ! grep -Eqs "(^|[^A-Za-z0-9_])$var_name\.dispose[[:space:]]*\(" "$file"; then
             if ! is_suppressed "$line_idx" "W01"; then
               add_finding "$file" "$line_idx" "CRITICAL" "W01" "Resource '$var_name' ($ctrl) is instantiated in State but never disposed via '$var_name.dispose()' in dispose()."
             fi
           fi
         fi
-      done < <(grep -nE "[A-Za-z0-9_]+[[:space:]]*=[[:space:]]*(new[[:space:]]+)?$ctrl\b" "$file" || true)
+      done < <(grep -nE "(^|[^A-Za-z0-9_])[A-Za-z0-9_]+[[:space:]]*=[[:space:]]*(new[[:space:]]+)?$ctrl\b" "$file" || true)
     done
 
     # W14: StreamController .close()
@@ -209,13 +275,13 @@ while IFS= read -r file; do
       line_idx=$(echo "$match_line" | cut -d: -f1)
       var_name=$(echo "$match_line" | sed -E 's/^[0-9]+:[[:space:]]*//; s/[[:space:]]*=.*//; s/.*[[:space:]]+//')
       if [[ -n "$var_name" ]]; then
-        if ! grep -qE "\b$var_name\.close[[:space:]]*\(" "$file"; then
+        if ! grep -Eqs "(^|[^A-Za-z0-9_])$var_name\.close[[:space:]]*\(" "$file"; then
           if ! is_suppressed "$line_idx" "W14"; then
             add_finding "$file" "$line_idx" "CRITICAL" "W14" "Stream sink '$var_name' (StreamController) must be closed via '$var_name.close()' in dispose()."
           fi
         fi
       fi
-    done < <(grep -nE "[A-Za-z0-9_]+[[:space:]]*=[[:space:]]*(new[[:space:]]+)?StreamController\b" "$file" || true)
+    done < <(grep -nE "(^|[^A-Za-z0-9_])[A-Za-z0-9_]+[[:space:]]*=[[:space:]]*(new[[:space:]]+)?StreamController\b" "$file" || true)
 
     # W03: StreamSubscription .cancel()
     while IFS= read -r match_line; do
@@ -223,7 +289,7 @@ while IFS= read -r file; do
       line_idx=$(echo "$match_line" | cut -d: -f1)
       var_name=$(echo "$match_line" | sed -E 's/^[0-9]+:[[:space:]]*//; s/[[:space:]]*=.*//; s/.*[[:space:]]+//')
       if [[ -n "$var_name" ]]; then
-        if ! grep -qE "\b$var_name(\?\.|\.)cancel[[:space:]]*\(" "$file"; then
+        if ! grep -Eqs "(^|[^A-Za-z0-9_])$var_name(\?\.|\.)cancel[[:space:]]*\(" "$file"; then
           if ! is_suppressed "$line_idx" "W03"; then
             add_finding "$file" "$line_idx" "CRITICAL" "W03" "StreamSubscription '$var_name' is active but never cancelled via '$var_name.cancel()' in dispose()."
           fi
@@ -237,7 +303,7 @@ while IFS= read -r file; do
       line_idx=$(echo "$match_line" | cut -d: -f1)
       var_name=$(echo "$match_line" | sed -E 's/^[0-9]+:[[:space:]]*//; s/[[:space:]]*=.*//; s/.*[[:space:]]+//')
       if [[ -n "$var_name" ]]; then
-        if ! grep -qE "\b$var_name(\?\.|\.)cancel[[:space:]]*\(" "$file"; then
+        if ! grep -Eqs "(^|[^A-Za-z0-9_])$var_name(\?\.|\.)cancel[[:space:]]*\(" "$file"; then
           if ! is_suppressed "$line_idx" "W06"; then
             add_finding "$file" "$line_idx" "CRITICAL" "W06" "Timer '$var_name' is running in event loop but never cancelled via '$var_name.cancel()' in dispose()."
           fi
@@ -250,43 +316,80 @@ done < <(find "$TARGET_DIR" -type f -name "*.dart" 2>/dev/null || true)
 
 # 2. Check pubspec.yaml for Up-to-Date Linter Package
 PUBSPEC_PATH="$TARGET_DIR/pubspec.yaml"
+ANALYSIS_PATH="$TARGET_DIR/analysis_options.yaml"
+
+has_linter=false
 if [[ -f "$PUBSPEC_PATH" ]]; then
-  if ! grep -Eqs '(flutter_lints|very_good_analysis)' "$PUBSPEC_PATH"; then
-    add_finding "$PUBSPEC_PATH" "1" "CRITICAL" "LINT-01" "Missing linter package in dev_dependencies. Add 'flutter_lints: ^5.0.0' or current package."
+  if grep -Eqs '(flutter_lints|very_good_analysis|lints|solid_lints)' "$PUBSPEC_PATH"; then
+    has_linter=true
+  fi
+fi
+if [[ "$has_linter" = false && -f "$ANALYSIS_PATH" ]]; then
+  if grep -Eqs '^[[:space:]]*include:[[:space:]]*' "$ANALYSIS_PATH"; then
+    has_linter=true
+  fi
+fi
+
+if [[ -f "$PUBSPEC_PATH" ]]; then
+  if [[ "$has_linter" = false ]]; then
+    add_finding "$PUBSPEC_PATH" "1" "MEDIUM" "LINT-01" "No standard linter package (flutter_lints, very_good_analysis, lints, solid_lints) or analysis_options.yaml include detected. Add a linter package to dev_dependencies."
   elif grep -Eqs 'flutter_lints:[[:space:]]*[\^~]?[0-3]\.' "$PUBSPEC_PATH"; then
     add_finding "$PUBSPEC_PATH" "1" "HIGH" "LINT-02" "Outdated flutter_lints version (legacy 1.x-3.x). Upgrade to a current release (e.g., ^5.0.0 or ^6.0.0) matching your Dart SDK."
   fi
 fi
 
-# 3. Check Native Privacy Manifest Flags
+# 3. Check Native Privacy Manifest Flags (strictly conditioned on Firebase dependencies)
+has_firebase_analytics=false
+has_firebase_crashlytics=false
+if [[ -f "$PUBSPEC_PATH" ]]; then
+  if grep -Eqs '(^|[[:space:]])firebase_analytics:' "$PUBSPEC_PATH"; then
+    has_firebase_analytics=true
+  fi
+  if grep -Eqs '(^|[[:space:]])firebase_crashlytics:' "$PUBSPEC_PATH"; then
+    has_firebase_crashlytics=true
+  fi
+fi
+
 ANDROID_MANIFEST="$TARGET_DIR/android/app/src/main/AndroidManifest.xml"
 if [[ -f "$ANDROID_MANIFEST" ]]; then
   manifest_flat=$(tr '\r\n' ' ' < "$ANDROID_MANIFEST")
-  p1='android:name="firebase_analytics_collection_enabled"[[:space:]]*android:value="false"'
-  p2='android:name="firebase_crashlytics_collection_enabled"[[:space:]]*android:value="false"'
-  if ! [[ "$manifest_flat" =~ $p1 ]]; then
-    add_finding "$ANDROID_MANIFEST" "1" "CRITICAL" "GDPR-01" "Missing native AndroidManifest default: firebase_analytics_collection_enabled must be false."
+  if [[ "$has_firebase_analytics" = true ]]; then
+    p1='android:name="firebase_analytics_collection_enabled"[[:space:]]*android:value="false"'
+    if ! [[ "$manifest_flat" =~ $p1 ]]; then
+      add_finding "$ANDROID_MANIFEST" "1" "CRITICAL" "GDPR-01" "Missing native AndroidManifest default: firebase_analytics_collection_enabled must be false."
+    fi
   fi
-  if ! [[ "$manifest_flat" =~ $p2 ]]; then
-    add_finding "$ANDROID_MANIFEST" "1" "CRITICAL" "GDPR-02" "Missing native AndroidManifest default: firebase_crashlytics_collection_enabled must be false."
+  if [[ "$has_firebase_crashlytics" = true ]]; then
+    p2='android:name="firebase_crashlytics_collection_enabled"[[:space:]]*android:value="false"'
+    if ! [[ "$manifest_flat" =~ $p2 ]]; then
+      add_finding "$ANDROID_MANIFEST" "1" "CRITICAL" "GDPR-02" "Missing native AndroidManifest default: firebase_crashlytics_collection_enabled must be false."
+    fi
   fi
 fi
 
 IOS_PLIST="$TARGET_DIR/ios/Runner/Info.plist"
 if [[ -f "$IOS_PLIST" ]]; then
   plist_flat=$(tr '\r\n' ' ' < "$IOS_PLIST")
-  p3='<key>FIREBASE_ANALYTICS_COLLECTION_ENABLED</key>[[:space:]]*<false/>'
-  p4='<key>FirebaseCrashlyticsCollectionEnabled</key>[[:space:]]*<false/>'
-  if ! [[ "$plist_flat" =~ $p3 ]]; then
-    add_finding "$IOS_PLIST" "1" "CRITICAL" "GDPR-03" "Missing native Info.plist default: FIREBASE_ANALYTICS_COLLECTION_ENABLED must be <false/>."
+  if [[ "$has_firebase_analytics" = true ]]; then
+    p3='<key>FIREBASE_ANALYTICS_COLLECTION_ENABLED</key>[[:space:]]*<false/>'
+    if ! [[ "$plist_flat" =~ $p3 ]]; then
+      add_finding "$IOS_PLIST" "1" "CRITICAL" "GDPR-03" "Missing native Info.plist default: FIREBASE_ANALYTICS_COLLECTION_ENABLED must be <false/>."
+    fi
   fi
-  if ! [[ "$plist_flat" =~ $p4 ]]; then
-    add_finding "$IOS_PLIST" "1" "CRITICAL" "GDPR-04" "Missing native Info.plist default: FirebaseCrashlyticsCollectionEnabled must be <false/>."
+  if [[ "$has_firebase_crashlytics" = true ]]; then
+    p4='<key>FirebaseCrashlyticsCollectionEnabled</key>[[:space:]]*<false/>'
+    if ! [[ "$plist_flat" =~ $p4 ]]; then
+      add_finding "$IOS_PLIST" "1" "CRITICAL" "GDPR-04" "Missing native Info.plist default: FirebaseCrashlyticsCollectionEnabled must be <false/>."
+    fi
   fi
 fi
 
 # 4. Output Findings
 if [[ "$JSON_MODE" = true ]]; then
+  if (( ${#FINDINGS[@]} == 0 )); then
+    echo "[]"
+    exit 0
+  fi
   echo "["
   first=true
   for f in "${FINDINGS[@]}"; do
@@ -308,8 +411,8 @@ else
   echo " Target: $TARGET_DIR"
   echo "=================================================="
 
-  if [ ${#FINDINGS[@]} -eq 0 ]; then
-    echo -e "\n[PASS] No performance traps, memory leaks, or context violations found!"
+  if (( ${#FINDINGS[@]} == 0 )); then
+    printf '\n[PASS] No performance traps, memory leaks, or context violations found!\n'
     exit 0
   fi
 
@@ -336,12 +439,14 @@ else
 fi
 
 has_critical=false
-for f in "${FINDINGS[@]}"; do
-  if [[ "$f" =~ ^(CRITICAL|HIGH) ]]; then
-    has_critical=true
-    break
-  fi
-done
+if (( ${#FINDINGS[@]} > 0 )); then
+  for f in "${FINDINGS[@]}"; do
+    if [[ "$f" =~ ^(CRITICAL|HIGH) ]]; then
+      has_critical=true
+      break
+    fi
+  done
+fi
 
 if [[ "$STRICT_MODE" = true && ${#FINDINGS[@]} -gt 0 ]]; then
   exit 1

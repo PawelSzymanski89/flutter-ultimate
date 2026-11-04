@@ -7,25 +7,40 @@
 # ==============================================================================
 input=$(cat)
 
-# 1. Chain Ponytail statusline if installed
+# 1. Chain Ponytail statusline & extract workspace dir in a single Node process
 claude_dir="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
-pony=$(node -e '
+meta=$(printf '%s' "$input" | node -e '
   const fs = require("fs");
   const path = require("path");
-  const base = path.join(process.argv[1] || "", "plugins/cache/ponytail/ponytail");
-  if (!fs.existsSync(base)) process.exit(0);
+  let pony = "";
+  let dir = "";
   try {
-    const dirs = fs.readdirSync(base).sort((a,b) => a.localeCompare(b, undefined, {numeric: true}));
-    for (let i = dirs.length - 1; i >= 0; i--) {
-      const p = path.join(base, dirs[i], "hooks/ponytail-statusline.sh");
-      if (fs.existsSync(p)) { process.stdout.write(p); break; }
+    const claudeDir = process.argv[1] || "";
+    const base = path.join(claudeDir, "plugins/cache/ponytail/ponytail");
+    if (fs.existsSync(base)) {
+      const dirs = fs.readdirSync(base).sort((a,b) => a.localeCompare(b, undefined, {numeric: true}));
+      for (let i = dirs.length - 1; i >= 0; i--) {
+        const p = path.join(base, dirs[i], "hooks/ponytail-statusline.sh");
+        if (fs.existsSync(p)) { pony = p; break; }
+      }
+    }
+    if (!pony) {
+      const fallback = path.join(claudeDir, "ponytail-statusline.sh");
+      if (fs.existsSync(fallback)) pony = fallback;
+    }
+    const raw = fs.readFileSync(0, "utf8");
+    if (raw) {
+      const obj = JSON.parse(raw);
+      dir = (obj.workspace && obj.workspace.current_dir) || obj.cwd || "";
     }
   } catch(e) {}
-' "$claude_dir" 2>/dev/null || true)
+  process.stdout.write((pony || "-") + "\t" + (dir || "-"));
+' "$claude_dir" 2>/dev/null || printf -- "-\t-")
 
-if [ -z "$pony" ] && [ -f "$claude_dir/ponytail-statusline.sh" ]; then
-  pony="$claude_dir/ponytail-statusline.sh"
-fi
+pony="${meta%%	*}"
+dir="${meta#*	}"
+[ "$pony" = "-" ] && pony=""
+[ "$dir" = "-" ] && dir=""
 
 if [ -n "$pony" ] && [ -f "$pony" ]; then
   pony_out=$(printf '%s' "$input" | bash "$pony" 2>/dev/null || true)
@@ -34,22 +49,12 @@ if [ -n "$pony" ] && [ -f "$pony" ]; then
   fi
 fi
 
-# 2. Extract workspace directory from JSON payload
-dir=$(printf '%s' "$input" | node -e '
-  let d = "";
-  try {
-    const obj = JSON.parse(require("fs").readFileSync(0, "utf8"));
-    d = (obj.workspace && obj.workspace.current_dir) || obj.cwd || "";
-  } catch (e) {}
-  process.stdout.write(d);
-' 2>/dev/null || true)
-
 [ -z "$dir" ] && dir="$PWD"
 
-# 3. Check for Flutter project marker in directory or parent hierarchy
+# 2. Check for Flutter project marker in directory or parent hierarchy
 is_flutter=false
 check_dir="$dir"
-for _ in {1..5}; do
+for _i in 1 2 3 4 5; do
   if [ -f "$check_dir/pubspec.yaml" ]; then
     if grep -Eqs '(sdk:[[:space:]]*flutter|flutter:[[:space:]]*$|flutter_test:)' "$check_dir/pubspec.yaml"; then
       is_flutter=true
@@ -61,13 +66,7 @@ for _ in {1..5}; do
   check_dir="$parent"
 done
 
-# Check active session flag as secondary fallback
-flag_file="$claude_dir/.flutter-active"
-if [ "$is_flutter" = false ] && [ -f "$flag_file" ]; then
-  is_flutter=true
-fi
-
-# 4. Render badge
+# 3. Render badge
 if [ "$is_flutter" = true ]; then
   printf '\033[38;5;75m[FLUTTER]\033[0m'
 else

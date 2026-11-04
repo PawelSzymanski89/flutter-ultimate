@@ -1,0 +1,9 @@
+name: single_fixture
+description: Fixture triggering exactly one finding (LINT-01)
+version: 1.0.0+1
+environment:
+  sdk: ^3.5.0
+
+dependencies:
+  flutter:
+    sdk: flutter

@@ -4,8 +4,6 @@ const path = require('path');
 
 const here = __dirname;
 const cwd = process.cwd();
-const claudeDir = process.env.CLAUDE_CONFIG_DIR || path.join(process.env.HOME || process.env.USERPROFILE || '', '.claude');
-const flagPath = path.join(claudeDir, '.flutter-active');
 
 function isFlutterProject(dir) {
   let cur = dir;
@@ -28,17 +26,6 @@ function isFlutterProject(dir) {
 }
 
 const active = isFlutterProject(cwd);
-
-try {
-  if (active) {
-    if (!fs.existsSync(claudeDir)) {
-      fs.mkdirSync(claudeDir, { recursive: true });
-    }
-    fs.writeFileSync(flagPath, '1', 'utf8');
-  } else if (fs.existsSync(flagPath)) {
-    fs.unlinkSync(flagPath);
-  }
-} catch (e) {}
 
 if (active) {
   const modeFile = path.join(here, 'mode.md');

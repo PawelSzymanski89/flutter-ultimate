@@ -1,5 +1,5 @@
 name: positive_fixture
-description: Fixture triggering linter warnings
+description: Fixture triggering linter warnings and GDPR missing flags
 version: 1.0.0+1
 environment:
   sdk: ^3.5.0
@@ -7,6 +7,8 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  firebase_analytics: ^11.0.0
+  firebase_crashlytics: ^4.0.0
 
 dev_dependencies:
   flutter_lints: ^2.0.0 # Triggers LINT-02

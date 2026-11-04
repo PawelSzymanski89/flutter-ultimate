@@ -12,7 +12,6 @@ desktop.ini
 # Runtime & Temporary files
 *.tmp
 *.log
-.flutter-active
 
 # Build outputs
 build/

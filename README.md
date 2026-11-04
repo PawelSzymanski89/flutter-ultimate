@@ -337,20 +337,36 @@ void dispose() {
 
 ## Dedicated Commands
 
-Two ergonomic commands provide targeted entrypoints across Claude Code, OpenCode, and plugin environments:
+Two ergonomic commands provide targeted entrypoints across Claude Code and plugin environments:
 
-| Command | Scope | Function |
-| :--- | :--- | :--- |
-| **`/flutter-review`** | Working tree changes / git diff | Reviews changes against 60/120 FPS pipeline, disposal pairing, `BuildContext` async safety, and Dart 3 idioms. Outputs a 7-section structured report. |
-| **`/flutter-audit`** | Whole repository | Executes deterministic static code analysis (`scripts/audit-flutter.*`), verifies linter currency, and checks native manifest privacy flags. |
+| Command | Scope | Mechanism | Function |
+| :--- | :--- | :--- | :--- |
+| **`/flutter-review`** | Working tree changes / git diff | Semantic LLM Analysis (`SKILL.md`) | Reviews changes against 60/120 FPS pipeline, disposal pairing, `BuildContext` async safety, and Dart 3 idioms. Outputs a 7-section structured report. |
+| **`/flutter-audit`** | Whole repository / directory | Deterministic Script (`scripts/audit-flutter.*`) | Executes deterministic static code analysis, verifies linter currency, checks native manifest privacy flags, and outputs human-readable or JSON reports. |
 
 ---
 
 ## Installation & Setup
 
-### Mode A: Skill Installation (Claude Code)
+### Mode A: Claude Code Plugin (Recommended)
 
-Install as a Claude Code skill for architectural guidance and code review:
+Flutter Ultimate is packaged as a standard Claude Code plugin (`.claude-plugin/plugin.json`, `commands/`, `skills/`, `hooks/`).
+
+**Project-Level Installation:**
+```bash
+# Add as a project plugin
+claude plugin install .
+```
+
+**Global Installation:**
+```bash
+# Clone to global plugins directory
+git clone https://github.com/PawelSzymanski89/flutter-ultimate.git ~/.claude/plugins/flutter-ultimate
+```
+
+### Mode B: Standalone Skill Installation
+
+Install directly into your agent skills directory:
 
 **Project-Level:**
 ```bash
@@ -364,17 +380,15 @@ mkdir -p ~/.claude/skills
 git clone https://github.com/PawelSzymanski89/flutter-ultimate.git ~/.claude/skills/flutter-ultimate
 ```
 
-*Note: Skill installation loads `SKILL.md`, references, and analyzer scripts into agent sessions.*
+### Mode C: Statusline Indicator Hook
 
-### Mode B: Plugin & Statusline Installation
-
-To enable dynamic session activation and the `[FLUTTER]` statusline badge in Claude Code:
+Enable the dynamic `[FLUTTER]` statusline badge in Claude Code:
 
 **Windows (`~/.claude/settings.json`):**
 ```json
 "statusLine": {
   "type": "command",
-  "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"~/.claude/skills/flutter-ultimate/hooks/statusline.ps1\""
+  "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"~/.claude/plugins/flutter-ultimate/hooks/statusline.ps1\""
 }
 ```
 
@@ -382,7 +396,7 @@ To enable dynamic session activation and the `[FLUTTER]` statusline badge in Cla
 ```json
 "statusLine": {
   "type": "command",
-  "command": "bash ~/.claude/skills/flutter-ultimate/hooks/statusline.sh"
+  "command": "bash ~/.claude/plugins/flutter-ultimate/hooks/statusline.sh"
 }
 ```
 
@@ -390,13 +404,16 @@ To enable dynamic session activation and the `[FLUTTER]` statusline badge in Cla
 
 ## Deterministic Static Code Audit
 
-The repository bundles cross-platform static code analyzers implementing deterministic regex and pattern analysis.
+Flutter Ultimate provides a clear separation of concerns between **deterministic static analysis** and **semantic agent review**:
 
-### Active Automated Detectors
+- **Deterministic Static Audit (`scripts/audit-flutter.*`)**: 18 automated rules providing instant, zero-dependency, reproducible pass/fail checks for CI/CD with exact file, line, and trapId reporting.
+- **Semantic Agent Review (`/flutter-review` & `SKILL.md`)**: 54 semantic patterns (and 80+ in `references/*.md`) evaluating architectural trade-offs, state management, and micro-interactions.
+
+### Active Automated Detectors (18 Rules)
 
 | Rule ID | Severity | Category | Description |
 | :--- | :--- | :--- | :--- |
-| **K01** | `CRITICAL` | Async Safety | `BuildContext` invoked after `await` without `if (!context.mounted) return;` or `if (!mounted) return;` guard. |
+| **K01** | `CRITICAL` | Async Safety | `BuildContext` invoked after `await` (`setState`, `Navigator`, dialogs, `context.*`) without `if (!context.mounted) return;` or `if (!mounted) return;` guard. |
 | **W01** | `CRITICAL` | Memory Disposal | Controller instantiated in `State` without corresponding `.dispose()` call. |
 | **W03** | `CRITICAL` | Memory Disposal | `StreamSubscription` listened in `State` without corresponding `.cancel()` call. |
 | **W06** | `CRITICAL` | Memory Disposal | `Timer` instantiated in `State` without corresponding `.cancel()` call. |
@@ -404,50 +421,69 @@ The repository bundles cross-platform static code analyzers implementing determi
 | **P03** | `LOW` | Rebuild Scoping | Helper `_buildX()` method inside a Widget. Extract into a `StatelessWidget` for isolated rebuild boundaries. |
 | **P04** | `HIGH` | GC & Allocations | `Paint` or `Path` instantiated inside `build()` or `paint()` methods. |
 | **P07** | `HIGH` | Rebuild Scoping | Broad `MediaQuery.of(context)` dependency. Use aspect methods (`sizeOf`, `paddingOf`, `viewInsetsOf`). |
-| **P12** | `CRITICAL` | Frame Budget | Eager `Future` or `Stream` instantiation directly inside `FutureBuilder` or `StreamBuilder`. |
+| **P12** | `HIGH` | Frame Budget | Eager `Future` or `Stream` instantiation directly inside `FutureBuilder` or `StreamBuilder`. |
 | **P19** | `HIGH` | Layout Passes | `shrinkWrap: true` forcing two-pass layout calculation inside scrollable contexts. |
-| **P21** | `HIGH` | Layout Passes | `IntrinsicHeight` or `IntrinsicWidth` triggering speculative layout passes. |
-| **P26** | `MEDIUM` | Compositing | `Opacity` widget potentially creating offscreen render buffers. Prefer `FadeTransition` or color alpha. |
+| **P21** | `HIGH` | Layout Passes | `IntrinsicHeight` or `IntrinsicWidth` triggering speculative layout passes (token-isolated). |
+| **P26** | `MEDIUM` | Compositing | `Opacity` widget creating offscreen render buffers (token-isolated, ignores `AnimatedOpacity`, `SliverOpacity`). |
 | **P27** | `LOW` | Clipping | `ClipRRect` creating clipping overhead. Prefer `BoxDecoration.borderRadius` where child clipping is not needed. |
-| **LINT-01** | `CRITICAL` | Configuration | Missing linter package in `pubspec.yaml` `dev_dependencies`. |
+| **LINT-01** | `MEDIUM` | Configuration | Missing standard linter package (`flutter_lints`, `very_good_analysis`, `lints`, `solid_lints`) or `analysis_options.yaml` include. |
 | **LINT-02** | `HIGH` | Configuration | Outdated linter package (legacy `flutter_lints` 1.x-3.x). |
-| **GDPR-01..04**| `CRITICAL` | Native Privacy | Native manifests missing default disabled analytics flags. |
+| **GDPR-01..04**| `CRITICAL` | Native Privacy | Native manifests missing default disabled analytics flags (strictly conditioned on Firebase dependencies in `pubspec.yaml`). |
 
-*Additional architectural traps (P01-P40, W01-W20, K01-K14) are cataloged in `references/*.md` for architecture reviews and manual verification.*
+### CLI Contract & Return Codes
 
-### Running the Audit (PowerShell)
+Both `audit-flutter.sh` and `audit-flutter.ps1` share an identical command-line and exit code contract:
 
-```powershell
-# Run audit against current repository
-.\scripts\audit-flutter.ps1
+| Exit Code | Meaning | Condition |
+| :---: | :--- | :--- |
+| `0` | **Clean / Warning Pass** | No findings, or only `MEDIUM`/`LOW` findings without `--strict` / `-Strict`. |
+| `1` | **Violations Detected** | One or more `CRITICAL` or `HIGH` findings detected, or any finding under `--strict` / `-Strict`. |
+| `2` | **CLI Error** | Unknown command-line option, missing `--target` argument, or non-existent target directory. |
 
-# Run audit with strict mode (fails on warnings)
-.\scripts\audit-flutter.ps1 -Strict
+### JSON Output Contract
 
-# Generate machine-readable JSON for CI/CD pipelines
-.\scripts\audit-flutter.ps1 -Json
-```
+When `--json` or `-Json` is passed:
+- **Zero findings**: Outputs strictly `[]` (with exit code 0).
+- **One finding**: Outputs a valid single-element JSON array `[{...}]`.
+- **Multiple findings**: Outputs a formatted JSON array `[{...}, {...}]`.
 
-### Running the Audit (Bash 3.2+ / macOS / Linux)
+### Running the Audit (Bash 3.2+ / macOS / Linux / Git Bash)
+
+Full compatibility with macOS default system `/bin/bash` 3.2, Linux, and Windows Git Bash:
 
 ```bash
-# Run audit against current repository
-bash ./scripts/audit-flutter.sh
+# Run audit against target repository
+bash ./scripts/audit-flutter.sh --target /path/to/project
 
-# Run audit with strict mode
-bash ./scripts/audit-flutter.sh --strict
+# Run audit in strict mode (fails on any finding including MEDIUM/LOW)
+bash ./scripts/audit-flutter.sh --target /path/to/project --strict
 
-# Generate machine-readable JSON for CI/CD pipelines
-bash ./scripts/audit-flutter.sh --json
+# Output machine-readable JSON for CI/CD pipelines
+bash ./scripts/audit-flutter.sh --target /path/to/project --json
+```
+
+### Running the Audit (PowerShell 5.1+ / pwsh / Windows)
+
+Full compatibility with Windows PowerShell 5.1 and modern PowerShell 7+ (`pwsh`):
+
+```powershell
+# Run audit against target repository
+.\scripts\audit-flutter.ps1 -Target C:\path\to\project
+
+# Run audit in strict mode
+.\scripts\audit-flutter.ps1 -Target C:\path\to\project -Strict
+
+# Output machine-readable JSON for CI/CD pipelines
+.\scripts\audit-flutter.ps1 -Target C:\path\to\project -Json
 ```
 
 ### Defect Severity Classification
 
 | Severity | Definition | Pipeline Action |
 | :--- | :--- | :--- |
-| **CRITICAL** | Memory leaks in State (`W01`, `W03`, `W06`, `W14`), unmounted `BuildContext` invocations (`K01`), missing native privacy flags. | **Build Broken**. Immediate resolution required before merge. |
-| **HIGH** | Frame budget violations (`P12`, `P19`, `P21`), layout thrashing, outdated linter package. | **Quality Gate Fail**. Must be resolved prior to release tag. |
-| **MEDIUM** | Missing `const` constructors, broad `MediaQuery.of` dependency (`P07`), offscreen `Opacity` buffers (`P26`). | Refactor during normal development sprint. |
+| **CRITICAL** | Memory leaks in State (`W01`, `W03`, `W06`, `W14`), unmounted `BuildContext` invocations (`K01`), missing native privacy flags (`GDPR-01..04`). | **Build Broken**. Immediate resolution required before merge. |
+| **HIGH** | Frame budget violations (`P12`, `P19`, `P21`), allocations in draw loop (`P04`), outdated linter package (`LINT-02`). | **Quality Gate Fail**. Must be resolved prior to release tag. |
+| **MEDIUM** | Missing linter configuration (`LINT-01`), broad `MediaQuery.of` dependency (`P07`), offscreen `Opacity` buffers (`P26`). | Refactor during normal development sprint. |
 | **LOW** | Minor style discrepancies, ClipRRect optimization (`P27`), helper method extraction (`P03`). | Clean up when modifying file. |
 
 ---
@@ -462,6 +498,26 @@ For exhaustive code comparisons, structural diagrams, and verified solutions, co
 - **[references/dart3-and-architecture.md](references/dart3-and-architecture.md)**: Clean Architecture boundary specifications, sealed class exhaustive matching, and state ladder guidelines.
 - **[references/production-stack.md](references/production-stack.md)**: Production stack blueprints: `go_router` StatefulShellRoute tab state preservation, auth redirection, `flutter_bloc` concurrency transformers (`restartable`, `droppable`), `flutter_secure_storage` hardware keystore options, and `hive` AES-256 encrypted LazyBox memory budgeting.
 - **[references/platform-and-security.md](references/platform-and-security.md)**: Native manifest configurations, biometric storage security, and background execution limits.
+
+---
+
+## Changelog
+
+### v1.2.0 (2026-11-04)
+- **macOS System Bash 3.2 Compatibility**: Guarded empty array expansions under `set -u` and removed non-portable shell patterns, ensuring robust execution on macOS default `/bin/bash`.
+- **Bash <-> PowerShell Cross-Platform Parity**: Achieved 100% parity across `audit-flutter.sh` and `audit-flutter.ps1` (matching all 18 automated rules, file paths, line numbers, and severity ratings).
+- **Claude Code Plugin Architecture**: Added standard `.claude-plugin/plugin.json`, `commands/flutter-audit.md`, and `commands/flutter-review.md` with YAML frontmatter.
+- **Context-Sensitive Privacy Checks**: Conditioned `GDPR-01` through `GDPR-04` manifest assertions strictly on the presence of `firebase_analytics` or `firebase_crashlytics` in `pubspec.yaml`.
+- **Elimination of False Positives**:
+  - Bound `P26` (`Opacity`) and `P21` (`IntrinsicHeight`/`Width`) with strict identifier boundaries, preventing false matches on `AnimatedOpacity`, `SliverOpacity`, and custom `RenderBox` methods like `computeMinIntrinsicHeight()`.
+  - Restricted path exclusions to exact directory segments `(^|[\\/])(build|\.dart_tool|\.git)([\\/]|$)`, preventing accidental exclusion of source files like `rebuild_helper.dart`.
+  - Upgraded `K01` lookahead to scan for `setState`, `Navigator`, dialogs, and `context.*` operations across asynchronous gaps, reporting findings on the exact unsafe invocation line.
+- **Strict CLI & JSON Contracts**:
+  - Exits with code `2` on invalid options, missing arguments, or non-existent target directories.
+  - Outputs strictly `[]` on zero findings and `[{...}]` single-element JSON array on single finding.
+- **Linter Rule Currency**: Expanded `LINT-01` to recognize `flutter_lints`, `very_good_analysis`, `lints`, `solid_lints`, and `analysis_options.yaml` includes. Reclassified severity to `MEDIUM`.
+- **Severity Alignment**: Reclassified `P12` (Eager future in build) to `HIGH`.
+- **Multi-Platform CI**: Added GitHub Actions matrix testing macOS system `/bin/bash` 3.2, Ubuntu ShellCheck, and Windows PowerShell + Git Bash parity.
 
 ---
 

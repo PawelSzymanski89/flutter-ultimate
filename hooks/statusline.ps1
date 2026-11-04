@@ -55,11 +55,6 @@ for ($i = 0; $i -lt 4; $i++) {
     $Cur = $Parent
 }
 
-$FlagFile = Join-Path $ClaudeDir ".flutter-active"
-if (-not $IsFlutter -and (Test-Path $FlagFile)) {
-    $IsFlutter = $true
-}
-
 $Esc = [char]27
 if ($IsFlutter) {
     [Console]::Write("${Esc}[38;5;75m[FLUTTER]${Esc}[0m")

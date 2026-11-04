@@ -11,7 +11,7 @@
     {
       "name": "flutter-ultimate",
       "source": "./",
-      "description": "Principal Flutter & Dart framework skill: 60/120 FPS render pipelines, lifecycle leak detection, Dart 3 sealed architectures, and GDPR native consent defaults.",
+      "description": "Flutter / Dart rules for an AI coding agent (frame budget, resource disposal, BuildContext after await, Dart 3 state modeling, privacy defaults) plus a static audit script for CI.",
       "version": "1.4.1",
       "category": "development",
       "keywords": ["flutter", "dart", "performance", "memory", "audit", "static-analysis"]

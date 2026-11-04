@@ -7,18 +7,15 @@
 [![Agent Skills](https://img.shields.io/badge/Format-Agent%20Skills-blue.svg)](https://agentskills.io)
 [![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-cygan-FFDD00?logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/cygan)
 
-> **This is not a widget library or an app starter.**
-> It is a principal-level engineering standard, a set of deep reference manuals, and a deterministic static analyzer for humans and AI agents working on Flutter code.
+Not a widget library and not an app starter. Flutter Ultimate is three things in one repository:
 
-Flutter Ultimate packages a Flutter / Dart engineering standard as a Claude Code plugin and an [Agent Skills](https://agentskills.io) skill: six reference manuals (74 catalogued traps plus a decision guide for advanced framework APIs), two slash commands for review and audit, and a zero-dependency audit script for CI. "Ultimate" refers to the completeness of the trap catalog and the strictness of the standard, not to an all-in-one framework.
+- a set of Flutter / Dart rules for an AI coding agent (Claude Code plugin, also usable as an [Agent Skills](https://agentskills.io) skill): frame budget, resource disposal, `BuildContext` after `await`, Dart 3 state modeling, privacy defaults in native manifests;
+- seven reference manuals the agent reads on demand (74 catalogued traps plus a decision guide for framework APIs that are easy to misuse);
+- a Bash / PowerShell script that checks 19 of those rules in CI, with no dependencies.
 
-| Audience | Fit |
-| :--- | :--- |
-| Senior / principal Flutter engineers | Strongly recommended |
-| Teams that care about frame budgets and resource leaks | Highly recommended |
-| AI-assisted development (Claude Code, other Agent Skills hosts) | Excellent fit |
-| Developers learning advanced Flutter | Good as a reference |
-| Anyone looking for an app starter or a widget kit | Look elsewhere |
+The name is a leftover from the first version. It means "the whole trap catalog in one place", nothing more.
+
+It is useful if you review Flutter code with an AI agent, want a cheap CI check for leaks and `BuildContext` misuse, or need a written reference for the traps. It is not useful if you are looking for widgets, templates or a starter project.
 
 Like it? [Buy me a coffee ☕](https://buymeacoffee.com/cygan)
 

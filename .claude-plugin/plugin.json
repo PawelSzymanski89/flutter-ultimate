@@ -1,6 +1,6 @@
 {
   "name": "flutter-ultimate",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "description": "Principal Flutter & Dart framework skill: 60/120 FPS render pipelines, lifecycle leak detection, Dart 3 sealed architectures, and GDPR native consent defaults.",
   "author": {
     "name": "Pawel Szymanski"

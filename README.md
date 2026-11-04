@@ -278,6 +278,9 @@ Long term
 
 ## Changelog
 
+### v1.4.1 (2026-11-05)
+- **Git Bash on Windows**: a CRLF checkout made the 300-character `SKILL.md` line check count the carriage return; the Bash test runner now strips it and the longest line has margin. Release 1.4.0 failed only that CI step.
+
 ### v1.4.0 (2026-11-05)
 - **Advanced Framework Patterns**: new `references/advanced-framework-patterns.md` (275 lines): decision tables first, trust labels (Rule / Default / Trade-off / Specialist), six everyday patterns with one analyzer-checked snippet each (`LayoutBuilder` vs `MediaQuery` vs `SliverLayoutBuilder`, `AnimatedSwitcher` keys, Provider / BLoC selectors, conditional keep-alive, `TickerMode`, `Future.wait`), a supplementary table (`PageStorageKey`, `PageController.keepPage`, `RestorationMixin`, performance overlay, `compute` vs `Isolate.run`) and two specialist notes (`InheritedModel`, `RawGestureDetector`). Snippets verified with `dart analyze` on Flutter 3.47.5 / Dart 3.13.4 with `provider` 6.1 and `flutter_bloc` 9.1. Routing row and load / do-not-load rule in `SKILL.md`; `test/decisions.md` with 13 reviewer scenarios.
 - **Skill-driven changes are signed**: every edit the skill makes carries `// flutter-ultimate: <TRAP_ID> <reason>` (SKILL.md Construction Step 0, remediation step 4, `hooks/mode.md`, both commands). Project observations are reported as proposals, never written into the skill's own files during a task.

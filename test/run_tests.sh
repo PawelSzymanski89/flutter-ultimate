@@ -60,6 +60,7 @@ else
   curr_line=0
   while IFS= read -r l || [[ -n "$l" ]]; do
     curr_line=$((curr_line + 1))
+    l="${l%$'\r'}"   # Git Bash on Windows may check out CRLF; do not count the carriage return
     len=${#l}
     if (( len > 300 )); then
       long_lines=$((long_lines + 1))

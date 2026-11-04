@@ -5,14 +5,14 @@
   },
   "metadata": {
     "description": "Single-plugin marketplace for the Flutter Ultimate skill, commands and session hook.",
-    "version": "1.4.0"
+    "version": "1.4.1"
   },
   "plugins": [
     {
       "name": "flutter-ultimate",
       "source": "./",
       "description": "Principal Flutter & Dart framework skill: 60/120 FPS render pipelines, lifecycle leak detection, Dart 3 sealed architectures, and GDPR native consent defaults.",
-      "version": "1.4.0",
+      "version": "1.4.1",
       "category": "development",
       "keywords": ["flutter", "dart", "performance", "memory", "audit", "static-analysis"]
     }

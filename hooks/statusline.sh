@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # Flutter Ultimate Statusline Indicator
-# Displays [PONYTAIL] (if active) + [FLUTTER] badge in the bottom status line:
+# Displays [PONYTAIL] (if optional third-party plugin is installed) + [FLUTTER] badge in the bottom status line:
 # - Bright blue (\033[38;5;75m) when workspace is inside a Flutter project
 # - Subtle gray (\033[38;5;245m) otherwise
 # ==============================================================================

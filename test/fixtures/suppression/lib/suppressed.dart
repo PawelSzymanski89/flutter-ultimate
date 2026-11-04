@@ -27,8 +27,8 @@ class _SuppressedTestWidgetState extends State<SuppressedTestWidget> with Single
   }
 
   Future<void> doAsyncWork(BuildContext context) async {
-    // flutter-ultimate:ignore K01
     await Future.delayed(const Duration(milliseconds: 100));
+    // flutter-ultimate:ignore K01
     Navigator.of(context).pop();
   }
 

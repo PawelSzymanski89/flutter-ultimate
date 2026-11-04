@@ -62,14 +62,49 @@ if (-not (Test-Path $SkillPath)) {
 
 # Validate Plugin Packaging files
 $PluginManifest = Join-Path $ProjectRoot ".claude-plugin\plugin.json"
+$MarketplaceManifest = Join-Path $ProjectRoot ".claude-plugin\marketplace.json"
 $PluginSkill = Join-Path $ProjectRoot "skills\flutter-ultimate\SKILL.md"
 $CmdAudit = Join-Path $ProjectRoot "commands\flutter-audit.md"
 $CmdReview = Join-Path $ProjectRoot "commands\flutter-review.md"
 
 Report-Assert "plugin.json exists" (Test-Path $PluginManifest)
+Report-Assert "marketplace.json exists" (Test-Path $MarketplaceManifest)
 Report-Assert "skills/flutter-ultimate/SKILL.md exists" (Test-Path $PluginSkill)
+
+if (Test-Path $PluginSkill) {
+    $SkillHash = (Get-FileHash $SkillPath -Algorithm SHA256).Hash
+    $PluginSkillHash = (Get-FileHash $PluginSkill -Algorithm SHA256).Hash
+    Report-Assert "SKILL.md and skills/flutter-ultimate/SKILL.md are synchronized" ($SkillHash -eq $PluginSkillHash)
+}
+
 Report-Assert "commands/flutter-audit.md exists" (Test-Path $CmdAudit)
+if (Test-Path $CmdAudit) {
+    $CmdAuditContent = Get-Content $CmdAudit -Raw -Encoding UTF8
+    Report-Assert "commands/flutter-audit.md has description" ($CmdAuditContent -match "description:\s*.+")
+}
+
 Report-Assert "commands/flutter-review.md exists" (Test-Path $CmdReview)
+if (Test-Path $CmdReview) {
+    $CmdReviewContent = Get-Content $CmdReview -Raw -Encoding UTF8
+    Report-Assert "commands/flutter-review.md has description" ($CmdReviewContent -match "description:\s*.+")
+}
+
+# Validate and test activate.js hook
+$HookActivate = Join-Path $ProjectRoot "hooks\activate.js"
+$PositiveDir = Join-Path $ProjectRoot "test\fixtures\positive"
+Report-Assert "hooks/activate.js exists" (Test-Path $HookActivate)
+if (Test-Path $HookActivate) {
+    $ActNonFlutter = (& node $HookActivate 2>&1) -join "`n"
+    Report-Assert "activate.js in non-Flutter directory reports namespaced commands" ($ActNonFlutter -match "/flutter-ultimate:flutter-review")
+
+    Push-Location $PositiveDir
+    try {
+        $ActFlutter = (& node $HookActivate 2>&1) -join "`n"
+        Report-Assert "activate.js in Flutter workspace activates full mode" ($ActFlutter -match "FLUTTER ULTIMATE MODE ACTIVE")
+    } finally {
+        Pop-Location
+    }
+}
 
 # 2. Test CLI Contract & Error Handling
 Write-Host "`n[2/6] Testing CLI Contract & Error Handling..." -ForegroundColor Cyan
@@ -189,6 +224,16 @@ if ($BashExe) {
 
         $Diff = Compare-Object $PsNorm $BashNorm -Property severity, trapId, file, line, message
         Report-Assert "Zero discrepancies in severity, trapId, file, line, message" ($null -eq $Diff)
+
+        $BashNeg = & $BashExe $BashAuditShPath --target ($NegativeDir -replace '\\', '/') --json 2>&1
+        Report-Assert "Negative fixture parity: both return strict '[]'" (($NegStr -eq "[]") -and (($BashNeg -join "`n").Trim() -eq "[]"))
+
+        $BashSup = & $BashExe $BashAuditShPath --target ($SuppressionDir -replace '\\', '/') --json 2>&1
+        Report-Assert "Suppression fixture parity: both return strict '[]'" (($SupStr -eq "[]") -and (($BashSup -join "`n").Trim() -eq "[]"))
+
+        $BashSingle = & $BashExe $BashAuditShPath --target ((Join-Path $ProjectRoot "test\fixtures\single") -replace '\\', '/') --json 2>&1
+        $BashSingleJson = $BashSingle | ConvertFrom-Json
+        Report-Assert "Single finding fixture parity: exactly 1 matching record" ($SingleJson.Count -eq 1 -and $BashSingleJson.Count -eq 1 -and $SingleJson[0].trapId -eq $BashSingleJson[0].trapId)
     } catch {
         Report-Assert "Bash JSON output parsing" $false $_.Exception.Message
     }

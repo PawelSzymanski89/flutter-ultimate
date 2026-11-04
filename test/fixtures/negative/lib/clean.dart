@@ -55,10 +55,45 @@ class _CleanTestWidgetState extends State<CleanTestWidget> with SingleTickerProv
     Navigator.of(context).pop();
   }
 
+  Future<void> performSafeBraced(BuildContext context) async {
+    await Future.delayed(const Duration(milliseconds: 50));
+    if (!context.mounted) { return; }
+    Navigator.of(context).pop();
+  }
+
+  Future<void> performSafeMultiline(BuildContext context) async {
+    await Future.delayed(const Duration(milliseconds: 50));
+    if (!context.mounted) {
+      return;
+    }
+    Navigator.of(context).pop();
+  }
+
+  Future<void> performSafeWithEarlyExit(BuildContext context, String? user) async {
+    await Future.delayed(const Duration(milliseconds: 50));
+    if (user == null) {
+      return;
+    }
+    if (!context.mounted) return;
+    Navigator.of(context).pop();
+  }
+
+  Future<void> performSafeInsideMountedIf(BuildContext context) async {
+    await Future.delayed(const Duration(milliseconds: 50));
+    if (context.mounted) {
+      Navigator.of(context).pop();
+    }
+  }
+
   Future<void> performSafeSetState() async {
     await Future.delayed(const Duration(milliseconds: 50));
     if (!mounted) return;
     setState(() {});
+  }
+
+  void performLocalController() {
+    final localCtrl = TextEditingController();
+    localCtrl.dispose();
   }
 
   @override
@@ -72,6 +107,15 @@ class _CleanTestWidgetState extends State<CleanTestWidget> with SingleTickerProv
         FutureBuilder<int>(
           future: _cachedFuture,
           builder: (context, snapshot) => Text('$size ${_staticPaint.color}'),
+        ),
+        // Regression: Opacity with literal 0.0 and 1.0 does not allocate offscreen buffer
+        const Opacity(
+          opacity: 0.0,
+          child: Text('Hidden'),
+        ),
+        const Opacity(
+          opacity: 1.0,
+          child: Text('Opaque'),
         ),
         // Regression: AnimatedOpacity and SliverOpacity must not trigger P26
         AnimatedOpacity(
@@ -99,4 +143,26 @@ class _CleanTestWidgetState extends State<CleanTestWidget> with SingleTickerProv
     _loopTimer.cancel();
     super.dispose();
   }
+}
+
+// Regression: Injected external controller from widget must not trigger W01
+class InjectedControllerWidget extends StatefulWidget {
+  final TextEditingController controller;
+  const InjectedControllerWidget({super.key, required this.controller});
+
+  @override
+  State<InjectedControllerWidget> createState() => _InjectedControllerWidgetState();
+}
+
+class _InjectedControllerWidgetState extends State<InjectedControllerWidget> {
+  late final TextEditingController _injected = widget.controller;
+
+  @override
+  Widget build(BuildContext context) => const Text('Injected');
+}
+
+// Regression: Unrelated future field in model/config outside build must not trigger P12
+class ApiConfig {
+  final Future<void> Function() futureLoader;
+  const ApiConfig({required this.futureLoader});
 }

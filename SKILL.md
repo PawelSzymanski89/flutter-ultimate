@@ -30,7 +30,7 @@ All Flutter engineering under this skill follows the **Open Agent Skills 2026 Th
    - Deep specifications in `references/*.md` loaded on demand via `Read` or `Grep`.
    - Linter profile asset in `assets/analysis_options.yaml`.
    - Deterministic static analysis scripts in `scripts/audit-flutter.ps1` and `scripts/audit-flutter.sh`.
-   - Dedicated slash commands in `commands/*.toml`, `.opencode/command/*.md`, and `~/.claude/commands/*.md`.
+   - Dedicated slash commands in `commands/flutter-audit.md` and `commands/flutter-review.md`.
 
 ### Five Non-Negotiable Core Laws
 1. **60/120 FPS Frame Budget**: Every frame must complete within 16.6ms (60 FPS) or 8.33ms (120 FPS ProMotion). Keep expensive layout calculations, widget rebuilds, and I/O off the UI isolate.
@@ -244,20 +244,20 @@ powershell -ExecutionPolicy Bypass -File scripts/audit-flutter.ps1 -Json
 4. Re-run `scripts/audit-flutter.ps1` or `scripts/audit-flutter.sh` until exit code is 0.
 
 ### Step 5: Dedicated Slash Commands (/flutter-review & /flutter-audit)
-Two standard slash commands provide targeted, ergonomic workflows across Claude Code, OpenCode, and IDE plugins:
+Two standard slash commands provide targeted, ergonomic workflows across Claude Code environments:
 
 - **`/flutter-review`** (Working Tree & PR Diff Review):
   - Focuses on uncommitted changes, staged diffs, or PR branches.
   - Verifies 60/120 FPS pipeline, async `BuildContext` safety, disposal pairing, and Dart 3 idioms.
   - Outputs a structured report: What change does, Must-fix (Critical/High), Should-fix (Medium), Nice-to-have (Low), Verdict (Ship/Request Changes), 60/120 FPS Status, Disposal Status.
-  - Source definitions: `~/.claude/commands/flutter-review.md`, `commands/flutter-review.toml`, `.opencode/command/flutter-review.md`.
+  - Source definition: `commands/flutter-review.md`.
 
 - **`/flutter-audit`** (Full Repository Static & Architecture Audit):
   - Executes deterministic static analysis (`scripts/audit-flutter.ps1` / `scripts/audit-flutter.sh`).
   - Audits configuration health (`pubspec.yaml` linter currency, `analysis_options.yaml` strict compiler flags).
   - Scans native GDPR/RODO manifest toggles (`AndroidManifest.xml`, `Info.plist`).
   - Audits architectural topology: `go_router` StatefulShellRoute, 4-tier state ladder, hardware-backed secure storage.
-  - Source definitions: `~/.claude/commands/flutter-audit.md`, `commands/flutter-audit.toml`, `.opencode/command/flutter-audit.md`.
+  - Source definition: `commands/flutter-audit.md`.
 
 ---
 

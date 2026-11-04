@@ -1,12 +1,23 @@
 {
   "name": "flutter-ultimate",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Principal Flutter & Dart framework skill: 60/120 FPS render pipelines, memory leak elimination, Dart 3 sealed architectures, and GDPR native consent defaults.",
   "author": {
     "name": "Pawel Szymanski"
   },
+  "repository": "https://github.com/PawelSzymanski89/flutter-ultimate",
+  "homepage": "https://github.com/PawelSzymanski89/flutter-ultimate",
+  "license": "MIT",
+  "keywords": [
+    "flutter",
+    "dart",
+    "performance",
+    "memory",
+    "audit",
+    "static-analysis"
+  ],
   "commands": [
-    "commands/flutter-audit.md",
-    "commands/flutter-review.md"
+    "./commands/flutter-audit.md",
+    "./commands/flutter-review.md"
   ]
 }

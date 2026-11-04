@@ -104,22 +104,66 @@ else
   report_assert "plugin.json exists" 0 "Missing plugin.json"
 fi
 
+MARKETPLACE_MANIFEST="$PROJECT_ROOT/.claude-plugin/marketplace.json"
+if [[ -f "$MARKETPLACE_MANIFEST" ]]; then
+  report_assert "marketplace.json exists" 1 ""
+else
+  report_assert "marketplace.json exists" 0 "Missing marketplace.json"
+fi
+
 if [[ -f "$PLUGIN_SKILL" ]]; then
   report_assert "skills/flutter-ultimate/SKILL.md exists" 1 ""
+  if cmp -s "$SKILL_PATH" "$PLUGIN_SKILL"; then
+    report_assert "SKILL.md and skills/flutter-ultimate/SKILL.md are synchronized" 1 ""
+  else
+    report_assert "SKILL.md and skills/flutter-ultimate/SKILL.md are synchronized" 0 "Files differ"
+  fi
 else
   report_assert "skills/flutter-ultimate/SKILL.md exists" 0 "Missing skills/flutter-ultimate/SKILL.md"
 fi
 
 if [[ -f "$CMD_AUDIT" ]]; then
   report_assert "commands/flutter-audit.md exists" 1 ""
+  if grep -q "^description:[[:space:]]*" "$CMD_AUDIT"; then
+    report_assert "commands/flutter-audit.md has description" 1 ""
+  else
+    report_assert "commands/flutter-audit.md has description" 0 "Missing description frontmatter"
+  fi
 else
   report_assert "commands/flutter-audit.md exists" 0 "Missing commands/flutter-audit.md"
 fi
 
 if [[ -f "$CMD_REVIEW" ]]; then
   report_assert "commands/flutter-review.md exists" 1 ""
+  if grep -q "^description:[[:space:]]*" "$CMD_REVIEW"; then
+    report_assert "commands/flutter-review.md has description" 1 ""
+  else
+    report_assert "commands/flutter-review.md has description" 0 "Missing description frontmatter"
+  fi
 else
   report_assert "commands/flutter-review.md exists" 0 "Missing commands/flutter-review.md"
+fi
+
+# Validate and test activate.js hook
+HOOK_ACTIVATE="$PROJECT_ROOT/hooks/activate.js"
+if [[ -f "$HOOK_ACTIVATE" ]]; then
+  report_assert "hooks/activate.js exists" 1 ""
+
+  act_non_flutter=$(node "$HOOK_ACTIVATE" 2>&1 || true)
+  if echo "$act_non_flutter" | grep -q "/flutter-ultimate:flutter-review"; then
+    report_assert "activate.js in non-Flutter directory reports namespaced commands" 1 ""
+  else
+    report_assert "activate.js in non-Flutter directory reports namespaced commands" 0 "Output: $act_non_flutter"
+  fi
+
+  act_flutter=$(cd "$PROJECT_ROOT/test/fixtures/positive" && node "$HOOK_ACTIVATE" 2>&1 || true)
+  if echo "$act_flutter" | grep -q "FLUTTER ULTIMATE MODE ACTIVE"; then
+    report_assert "activate.js in Flutter workspace activates full mode" 1 ""
+  else
+    report_assert "activate.js in Flutter workspace activates full mode" 0 "Output: $act_flutter"
+  fi
+else
+  report_assert "hooks/activate.js exists" 0 "Missing hooks/activate.js"
 fi
 
 # 2. Test CLI Contract & Error Handling
@@ -227,13 +271,86 @@ fi
 if [[ -n "$PWSH_CMD" ]]; then
   AUDIT_PS1="$PROJECT_ROOT/scripts/audit-flutter.ps1"
   set +e
-  ps_output=$("$PWSH_CMD" -NoProfile -ExecutionPolicy Bypass -File "$AUDIT_PS1" -Target "$POS_DIR" -Json 2>&1)
+  ps_pos=$("$PWSH_CMD" -NoProfile -ExecutionPolicy Bypass -File "$AUDIT_PS1" -Target "$POS_DIR" -Json 2>&1)
+  ps_neg=$("$PWSH_CMD" -NoProfile -ExecutionPolicy Bypass -File "$AUDIT_PS1" -Target "$NEG_DIR" -Json 2>&1)
+  ps_sup=$("$PWSH_CMD" -NoProfile -ExecutionPolicy Bypass -File "$AUDIT_PS1" -Target "$SUP_DIR" -Json 2>&1)
+  ps_single=$("$PWSH_CMD" -NoProfile -ExecutionPolicy Bypass -File "$AUDIT_PS1" -Target "$SINGLE_DIR" -Json 2>&1)
   set -e
 
-  ps_count=$(echo "$ps_output" | grep -c '"trapId"' || true)
-  bash_count=$(echo "$pos_output" | grep -c '"trapId"' || true)
+  diff_pos=$(node -e '
+    function norm(raw) {
+      const arr = typeof raw === "string" ? JSON.parse(raw) : raw;
+      return (arr || []).map(r => ({
+        severity: String(r.severity || "").trim(),
+        trapId: String(r.trapId || "").trim(),
+        file: String(r.file || "").replace(/\\/g, "/").trim(),
+        line: Number(r.line),
+        message: String(r.message || "").trim()
+      })).sort((a,b) => {
+        return a.trapId.localeCompare(b.trapId) ||
+               a.file.localeCompare(b.file) ||
+               (a.line - b.line) ||
+               a.severity.localeCompare(b.severity) ||
+               a.message.localeCompare(b.message);
+      });
+    }
+    const bash = norm(process.argv[1]);
+    const ps = norm(process.argv[2]);
+    if (bash.length !== ps.length) {
+      console.error(`Count mismatch: Bash ${bash.length} vs PS ${ps.length}`);
+      process.exit(1);
+    }
+    for (let i = 0; i < bash.length; i++) {
+      const b = bash[i], p = ps[i];
+      if (b.severity !== p.severity || b.trapId !== p.trapId || b.file !== p.file || b.line !== p.line || b.message !== p.message) {
+        console.error(`Mismatch at [${i}]:\n  Bash: ${JSON.stringify(b)}\n  PS:   ${JSON.stringify(p)}`);
+        process.exit(1);
+      }
+    }
+  ' "$pos_output" "$ps_pos" 2>&1)
+  diff_pos_exit=$?
 
-  report_assert "Both scanners report identical findings count (18)" $(( ps_count == bash_count && bash_count == 18 ? 1 : 0 )) "PS: $ps_count, Bash: $bash_count"
+  report_assert "Positive fixture parity: 18 findings with zero discrepancies in (severity, trapId, file, line, message)" $(( diff_pos_exit == 0 ? 1 : 0 )) "$diff_pos"
+
+  diff_neg=$(node -e '
+    const b = (process.argv[1] || "").trim();
+    const p = (process.argv[2] || "").trim();
+    if (b !== "[]" || p !== "[]") {
+      console.error(`Negative mismatch: Bash "${b}" vs PS "${p}"`);
+      process.exit(1);
+    }
+  ' "$neg_output" "$ps_neg" 2>&1)
+  report_assert "Negative fixture parity: both return strict '[]'" $(( $? == 0 ? 1 : 0 )) "$diff_neg"
+
+  diff_sup=$(node -e '
+    const b = (process.argv[1] || "").trim();
+    const p = (process.argv[2] || "").trim();
+    if (b !== "[]" || p !== "[]") {
+      console.error(`Suppression mismatch: Bash "${b}" vs PS "${p}"`);
+      process.exit(1);
+    }
+  ' "$sup_output" "$ps_sup" 2>&1)
+  report_assert "Suppression fixture parity: both return strict '[]'" $(( $? == 0 ? 1 : 0 )) "$diff_sup"
+
+  diff_single=$(node -e '
+    function norm(raw) {
+      const arr = typeof raw === "string" ? JSON.parse(raw) : raw;
+      return (arr || []).map(r => ({
+        severity: String(r.severity || "").trim(),
+        trapId: String(r.trapId || "").trim(),
+        file: String(r.file || "").replace(/\\/g, "/").trim(),
+        line: Number(r.line),
+        message: String(r.message || "").trim()
+      }));
+    }
+    const b = norm(process.argv[1]);
+    const p = norm(process.argv[2]);
+    if (b.length !== 1 || p.length !== 1 || JSON.stringify(b[0]) !== JSON.stringify(p[0])) {
+      console.error(`Single mismatch: Bash ${JSON.stringify(b)} vs PS ${JSON.stringify(p)}`);
+      process.exit(1);
+    }
+  ' "$single_output" "$ps_single" 2>&1)
+  report_assert "Single finding fixture parity: exactly 1 matching record" $(( $? == 0 ? 1 : 0 )) "$diff_single"
 else
   printf '  %b[SKIP]%b PowerShell not found; skipping cross-platform parity assertion\n' "$YELLOW" "$NC"
 fi

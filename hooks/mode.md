@@ -54,5 +54,5 @@ You operate as a Principal Flutter & Dart Framework Architect. You write code th
 
 ## Commands
 
-- `/flutter-review` — Review working tree changes or git diff against performance, memory, and architectural rules.
-- `/flutter-audit` — Run static audit across the repository and output prioritized findings.
+- `/flutter-ultimate:flutter-review` — Review working tree changes or git diff against performance, memory, and architectural rules.
+- `/flutter-ultimate:flutter-audit` — Run static audit across the repository and output prioritized findings.

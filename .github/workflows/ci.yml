@@ -3,6 +3,7 @@ name: CI
 on:
   push:
     branches: [ main, master ]
+    tags: [ 'v*' ]
   pull_request:
     branches: [ main, master ]
   workflow_dispatch:
@@ -32,11 +33,14 @@ jobs:
             const fs = require("fs");
             const plugin = JSON.parse(fs.readFileSync(".claude-plugin/plugin.json", "utf8"));
             if (!plugin.name || !plugin.version) throw new Error("Missing name or version in plugin.json");
-            if (!plugin.commands || !plugin.commands.includes("commands/flutter-audit.md")) {
-              throw new Error("Missing flutter-audit in plugin.json commands");
+            if (!plugin.commands || !plugin.commands.includes("./commands/flutter-audit.md")) {
+              throw new Error("Missing ./commands/flutter-audit.md in plugin.json commands");
             }
-            if (!plugin.commands || !plugin.commands.includes("commands/flutter-review.md")) {
-              throw new Error("Missing flutter-review in plugin.json commands");
+            if (!plugin.commands || !plugin.commands.includes("./commands/flutter-review.md")) {
+              throw new Error("Missing ./commands/flutter-review.md in plugin.json commands");
+            }
+            if (!fs.existsSync(".claude-plugin/marketplace.json")) {
+              throw new Error(".claude-plugin/marketplace.json does not exist");
             }
             if (!fs.existsSync("skills/flutter-ultimate/SKILL.md")) {
               throw new Error("skills/flutter-ultimate/SKILL.md does not exist");
@@ -50,6 +54,10 @@ jobs:
             console.log("Plugin manifest and structure valid:", plugin.name, plugin.version);
           '
 
+      - name: Validate Plugin via Claude Code CLI
+        run: |
+          npx -y @anthropic-ai/claude-code plugin validate .
+
   test-unix:
     name: Test on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
@@ -57,7 +65,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ ubuntu-latest, macos-13, macos-latest ]
+        os: [ ubuntu-latest, macos-latest ]
 
     steps:
       - name: Checkout repository

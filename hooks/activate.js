@@ -34,6 +34,6 @@ if (active) {
   }
 } else {
   process.stdout.write(
-    'flutter-ultimate: loaded. Full mode activates automatically in Flutter workspaces. Commands available: /flutter-review, /flutter-audit.\n'
+    'flutter-ultimate: loaded. Full mode activates automatically in Flutter workspaces. Commands available: /flutter-ultimate:flutter-review, /flutter-ultimate:flutter-audit.\n'
   );
 }

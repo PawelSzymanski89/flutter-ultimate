@@ -6,7 +6,7 @@
 [![Standard](https://img.shields.io/badge/Standard-Open%20Agent%20Skills%202026-blue.svg)](https://agentskills.io)
 [![Static Audit](https://img.shields.io/badge/Linter-Strict%20Pass-brightgreen.svg)](#deterministic-static-code-audit)
 
-A comprehensive architectural framework, static code analyzer, and engineering standard designed to enforce 60/120 FPS jank-free render pipelines, eliminate memory leaks at development time, guard `BuildContext` across asynchronous boundaries, establish modern Dart 3 state architectures, and ensure privacy-first native SDK defaults.
+A comprehensive architectural framework, static code analyzer, and engineering standard designed to target 60/120 FPS jank-free render pipelines, prevent common memory leaks at development time, guard `BuildContext` across asynchronous boundaries, establish modern Dart 3 state architectures, and ensure privacy-first native SDK defaults.
 
 ---
 
@@ -42,8 +42,9 @@ A comprehensive architectural framework, static code analyzer, and engineering s
   - [Keyboard Insets & Safe Area Protocols](#keyboard-insets--safe-area-protocols)
 - [Dedicated Commands](#dedicated-commands)
 - [Installation & Setup](#installation--setup)
-  - [Mode A: Skill Installation (Claude Code)](#mode-a-skill-installation-claude-code)
-  - [Mode B: Plugin & Statusline Installation](#mode-b-plugin--statusline-installation)
+  - [Mode A: Claude Code Plugin (Recommended)](#mode-a-claude-code-plugin-recommended)
+  - [Mode B: Standalone Skill Installation](#mode-b-standalone-skill-installation)
+  - [Mode C: Statusline Indicator Hook](#mode-c-statusline-indicator-hook)
 - [Deterministic Static Code Audit](#deterministic-static-code-audit)
   - [Active Automated Detectors](#active-automated-detectors)
   - [Running the Audit (PowerShell)](#running-the-audit-powershell)
@@ -350,7 +351,12 @@ Two ergonomic commands provide targeted entrypoints across Claude Code and plugi
 
 ### Mode A: Claude Code Plugin (Recommended)
 
-Flutter Ultimate is packaged as a standard Claude Code plugin (`.claude-plugin/plugin.json`, `commands/`, `skills/`, `hooks/`).
+Flutter Ultimate is packaged as a standard Claude Code plugin (`.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, `commands/`, `skills/`, `hooks/`).
+
+**Single-Step Marketplace Installation (Claude Code 2.1.275+):**
+```bash
+/plugin install flutter-ultimate --marketplace PawelSzymanski89/flutter-ultimate
+```
 
 **Project-Level Installation:**
 ```bash
@@ -406,10 +412,10 @@ Enable the dynamic `[FLUTTER]` statusline badge in Claude Code:
 
 Flutter Ultimate provides a clear separation of concerns between **deterministic static analysis** and **semantic agent review**:
 
-- **Deterministic Static Audit (`scripts/audit-flutter.*`)**: 18 automated rules providing instant, zero-dependency, reproducible pass/fail checks for CI/CD with exact file, line, and trapId reporting.
+- **Deterministic Static Audit (`scripts/audit-flutter.*`)**: 19 automated rules providing instant, zero-dependency, reproducible pass/fail checks for CI/CD with exact file, line, and trapId reporting (18 findings exercised concurrently in the positive fixture; `LINT-01` verifies configuration presence while `LINT-02` flags outdated packages).
 - **Semantic Agent Review (`/flutter-review` & `SKILL.md`)**: 54 semantic patterns (and 80+ in `references/*.md`) evaluating architectural trade-offs, state management, and micro-interactions.
 
-### Active Automated Detectors (18 Rules)
+### Active Automated Detectors (19 Rules)
 
 | Rule ID | Severity | Category | Description |
 | :--- | :--- | :--- | :--- |
@@ -502,6 +508,14 @@ For exhaustive code comparisons, structural diagrams, and verified solutions, co
 ---
 
 ## Changelog
+
+### v1.2.1 (2026-11-04)
+- **State-Scoped Resource Disposal**: Scoped `W01`, `W03`, `W06`, and `W14` disposal verification strictly to the `void dispose()` method body of the enclosing `State` class. Eliminates false positives on injected controllers (e.g. `widget.controller`) and locally scoped method variables.
+- **Async Gap Guard Hardening (K01)**: Implemented 60-line lookahead with relative brace tracking, single-line and multiline guard recognition (`if (!context.mounted) { ... return; }`), block scoping for `if (mounted) { ... }`, and finding-line suppression directly preceding the unsafe invocation.
+- **Build Method Scoping (P12)**: Restricted eager `Future`/`Stream` instantiation warnings strictly to `build()` and `paint()` methods, avoiding false positives on model factories or configuration definitions.
+- **Compositing Filter Invariant (P26)**: Permitted literal `opacity: 0.0` and `opacity: 1.0` in `Opacity` widgets without warning, as Flutter's `RenderOpacity` skips offscreen `saveLayer` compositing for these boundary values.
+- **Claude Code Marketplace Integration**: Added `.claude-plugin/marketplace.json`, validated manifest schema with `claude plugin validate .`, namespaced commands to `./commands/*.md`, and documented single-line installation via `/plugin install flutter-ultimate --marketplace PawelSzymanski89/flutter-ultimate`.
+- **Cross-Platform Test Parity & CI Modernization**: Added deterministic multi-field record verification (`severity`, `trapId`, `file`, `line`, `message`) comparing Bash and PowerShell scanners across positive, negative, and suppression fixtures. Retired deprecated `macos-13` runner and added `v*` tag push triggers.
 
 ### v1.2.0 (2026-11-04)
 - **macOS System Bash 3.2 Compatibility**: Guarded empty array expansions under `set -u` and removed non-portable shell patterns, ensuring robust execution on macOS default `/bin/bash`.

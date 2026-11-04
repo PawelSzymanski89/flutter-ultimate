@@ -174,7 +174,7 @@ Declare explicit disabling flags in the application dictionary.
     <false/>
 
     <!-- 3. Disable Firebase Performance Monitoring -->
-    <key>FirebasePerformanceCollectionEnabled</key>
+    <key>firebase_performance_collection_enabled</key>
     <false/>
 
     <!-- 4. Required Explanation for App Tracking Transparency (ATT) -->

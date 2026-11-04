@@ -34,7 +34,7 @@ class _PositiveTestWidgetState extends State<PositiveTestWidget> with SingleTick
 
   @override
   Widget build(BuildContext context) {
-    // P04: Allocation inside build
+    // P32: Allocation inside build
     final paint = Paint();
 
     // P07: Unfiltered MediaQuery.of
@@ -76,4 +76,33 @@ class _PositiveTestWidgetState extends State<PositiveTestWidget> with SingleTick
     // Intentionally missing dispose calls to test W01, W03, W06, W14
     super.dispose();
   }
+}
+
+// W03 / W06 outside initState: resources acquired in didChangeDependencies or a plain method
+// are owned by the State too and must still be released.
+class LateAcquireWidget extends StatefulWidget {
+  const LateAcquireWidget({super.key});
+
+  @override
+  State<LateAcquireWidget> createState() => _LateAcquireWidgetState();
+}
+
+class _LateAcquireWidgetState extends State<LateAcquireWidget> {
+  StreamSubscription<int>? _ticks;
+  Timer? _poll;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // W03: listened in didChangeDependencies, never cancelled
+    _ticks = Stream<int>.periodic(const Duration(seconds: 1)).listen((_) {});
+  }
+
+  void startPolling() {
+    // W06: started from a method, never cancelled
+    _poll = Timer.periodic(const Duration(seconds: 5), (_) {});
+  }
+
+  @override
+  Widget build(BuildContext context) => const SizedBox.shrink();
 }

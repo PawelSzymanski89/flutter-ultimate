@@ -282,9 +282,10 @@ AnimatedBuilder(
 ### Tactile Haptics & Design Tokens
 
 Provide feedback on tactile interactions:
-- Primary button clicks: `HapticFeedback.lightImpact();`
-- Form validation errors: `HapticFeedback.heavyImpact();`
-- Success checkpoints: `HapticFeedback.mediumImpact();`
+- Non-destructive micro-actions (tab switch, chip toggle): `HapticFeedback.lightImpact();`
+- Primary actions (slider detent, drawer snap, swipe completion): `HapticFeedback.mediumImpact();`
+- Long-press menus and deletions: `HapticFeedback.heavyImpact();`
+- Picker wheel increments: `HapticFeedback.selectionClick();`
 
 ---
 
@@ -353,26 +354,22 @@ Two ergonomic commands provide targeted entrypoints across Claude Code and plugi
 
 Flutter Ultimate is packaged as a standard Claude Code plugin (`.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, `commands/`, `skills/`, `hooks/`).
 
+**Requirements:** `node` on `PATH` (the SessionStart hook and the statusline run through Node; the audit scripts themselves need only Bash 3.2+ or PowerShell 5.1+).
+
 **Single-Step Marketplace Installation (Claude Code 2.1.275+):**
 ```bash
 /plugin install flutter-ultimate --marketplace PawelSzymanski89/flutter-ultimate
 ```
 
-**Project-Level Installation:**
+**From a local clone (development):**
 ```bash
-# Add as a project plugin
-claude plugin install .
-```
-
-**Global Installation:**
-```bash
-# Clone to global plugins directory
-git clone https://github.com/PawelSzymanski89/flutter-ultimate.git ~/.claude/plugins/flutter-ultimate
+git clone https://github.com/PawelSzymanski89/flutter-ultimate.git
+claude plugin install flutter-ultimate --marketplace ./flutter-ultimate
 ```
 
 ### Mode B: Standalone Skill Installation
 
-Install directly into your agent skills directory:
+Install directly into your agent skills directory. This gives you `SKILL.md` and the `references/` only: the SessionStart hook, the `/flutter-ultimate:*` commands and the statusline need the plugin install from Mode A.
 
 **Project-Level:**
 ```bash
@@ -412,7 +409,7 @@ Enable the dynamic `[FLUTTER]` statusline badge in Claude Code:
 
 Flutter Ultimate provides a clear separation of concerns between **deterministic static analysis** and **semantic agent review**:
 
-- **Deterministic Static Audit (`scripts/audit-flutter.*`)**: 19 automated rules providing instant, zero-dependency, reproducible pass/fail checks for CI/CD with exact file, line, and trapId reporting (18 findings exercised concurrently in the positive fixture; `LINT-01` verifies configuration presence while `LINT-02` flags outdated packages).
+- **Deterministic Static Audit (`scripts/audit-flutter.*`)**: 19 automated rules providing instant, zero-dependency, reproducible pass/fail checks for CI/CD with exact file, line, and trapId reporting (20 findings exercised concurrently in the positive fixture; `LINT-01` verifies configuration presence while `LINT-02` flags outdated packages).
 - **Semantic Agent Review (`/flutter-review` & `SKILL.md`)**: 54 semantic patterns (and 80+ in `references/*.md`) evaluating architectural trade-offs, state management, and micro-interactions.
 
 ### Active Automated Detectors (19 Rules)
@@ -425,7 +422,7 @@ Flutter Ultimate provides a clear separation of concerns between **deterministic
 | **W06** | `CRITICAL` | Memory Disposal | `Timer` instantiated in `State` without corresponding `.cancel()` call. |
 | **W14** | `CRITICAL` | Memory Disposal | `StreamController` instantiated in `State` without corresponding `.close()` call. |
 | **P03** | `LOW` | Rebuild Scoping | Helper `_buildX()` method inside a Widget. Extract into a `StatelessWidget` for isolated rebuild boundaries. |
-| **P04** | `HIGH` | GC & Allocations | `Paint` or `Path` instantiated inside `build()` or `paint()` methods. |
+| **P32** | `HIGH` | GC & Allocations | `Paint` or `Path` instantiated inside `build()` or `paint()` methods. |
 | **P07** | `HIGH` | Rebuild Scoping | Broad `MediaQuery.of(context)` dependency. Use aspect methods (`sizeOf`, `paddingOf`, `viewInsetsOf`). |
 | **P12** | `HIGH` | Frame Budget | Eager `Future` or `Stream` instantiation directly inside `FutureBuilder` or `StreamBuilder`. |
 | **P19** | `HIGH` | Layout Passes | `shrinkWrap: true` forcing two-pass layout calculation inside scrollable contexts. |
@@ -488,7 +485,7 @@ Full compatibility with Windows PowerShell 5.1 and modern PowerShell 7+ (`pwsh`)
 | Severity | Definition | Pipeline Action |
 | :--- | :--- | :--- |
 | **CRITICAL** | Memory leaks in State (`W01`, `W03`, `W06`, `W14`), unmounted `BuildContext` invocations (`K01`), missing native privacy flags (`GDPR-01..04`). | **Build Broken**. Immediate resolution required before merge. |
-| **HIGH** | Frame budget violations (`P12`, `P19`, `P21`), allocations in draw loop (`P04`), outdated linter package (`LINT-02`). | **Quality Gate Fail**. Must be resolved prior to release tag. |
+| **HIGH** | Frame budget violations (`P12`, `P19`, `P21`), allocations in draw loop (`P32`), outdated linter package (`LINT-02`). | **Quality Gate Fail**. Must be resolved prior to release tag. |
 | **MEDIUM** | Missing linter configuration (`LINT-01`), broad `MediaQuery.of` dependency (`P07`), offscreen `Opacity` buffers (`P26`). | Refactor during normal development sprint. |
 | **LOW** | Minor style discrepancies, ClipRRect optimization (`P27`), helper method extraction (`P03`). | Clean up when modifying file. |
 
@@ -508,6 +505,13 @@ For exhaustive code comparisons, structural diagrams, and verified solutions, co
 ---
 
 ## Changelog
+
+### v1.3.0 (2026-11-04)
+- **Disposal Detectors Re-Scoped (W01, W03, W06, W14)**: A resource counts as owned by the `State` when it is created anywhere in that class (field, `initState`, `didChangeDependencies`, any method), and as released when `.dispose()` / `.cancel()` / `.close()` on that variable appears anywhere in the same class. Fixes false positives on teardown helpers called from `dispose()` and false negatives on timers started from methods or subscriptions opened in `didChangeDependencies`. Known limits: anonymous `Timer`/`listen` without assignment are not tracked; tear-offs (`disposables.add(_c.dispose)`) and bulk loops (`for (final c in _all) c.dispose()`) are reported and need an `ignore` comment.
+- **Trap ID Alignment**: The `Paint` / `Path` allocation detector is now `P32`, matching the reference catalog (`P4` there is `UniqueKey` in `build()`). Existing `// flutter-ultimate:ignore P04` comments must be renamed to `P32`. `P3` severity aligned to `LOW` in the catalog.
+- **State Ladder Unified**: `references/dart3-and-architecture.md` and both commands now use the same 4-tier ladder as `SKILL.md` (Tier 1 `setState` / `ValueNotifier`, Tier 2 `ChangeNotifier`, Tier 3 Riverpod / Provider, Tier 4 BLoC / Cubit).
+- **Reference Fixes**: `KeychainAccessibility.first_unlock_this_device` (the `_only` variant does not exist), single-subscription `ReceivePort` worker (double `listen` threw `Bad state`), Hero shuttle flies `(toHeroContext.widget as Hero).child`, iOS Performance key is `firebase_performance_collection_enabled`, `synchronizable` documented as iCloud sync (not backup) protection, haptics guidance aligned with `references/motion-and-ui.md`.
+- **Repository Hygiene**: Shell scripts are executable in git (fresh clones can run `test/run_tests.sh` without `chmod`), removed the undocumented `commands/*.toml` and `.opencode/` prompt copies, documented the `node` requirement, suppression comment placement documented.
 
 ### v1.2.1 (2026-11-04)
 - **State-Scoped Resource Disposal**: Scoped `W01`, `W03`, `W06`, and `W14` disposal verification strictly to the `void dispose()` method body of the enclosing `State` class. Eliminates false positives on injected controllers (e.g. `widget.controller`) and locally scoped method variables.

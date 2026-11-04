@@ -166,3 +166,39 @@ class ApiConfig {
   final Future<void> Function() futureLoader;
   const ApiConfig({required this.futureLoader});
 }
+
+// Regression: resources released through a helper called from dispose() must not trigger W01/W06
+class HelperTeardownWidget extends StatefulWidget {
+  const HelperTeardownWidget({super.key});
+
+  @override
+  State<HelperTeardownWidget> createState() => _HelperTeardownWidgetState();
+}
+
+class _HelperTeardownWidgetState extends State<HelperTeardownWidget> with SingleTickerProviderStateMixin {
+  late final AnimationController _anim;
+  final _text = TextEditingController();
+  Timer? _poll;
+
+  @override
+  void initState() {
+    super.initState();
+    _anim = AnimationController(vsync: this);
+    _poll = Timer.periodic(const Duration(seconds: 5), (_) {});
+  }
+
+  void _teardown() {
+    _poll?.cancel();
+    _anim.dispose();
+    _text.dispose();
+  }
+
+  @override
+  void dispose() {
+    _teardown();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => const SizedBox.shrink();
+}

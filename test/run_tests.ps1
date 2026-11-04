@@ -128,7 +128,7 @@ try {
     $DetectedTraps = @($PosJson | ForEach-Object { $_.trapId })
 
     $ExpectedTraps = @(
-        "P03", "P04", "P07", "P12", "P19", "P21", "P26", "P27",
+        "P03", "P32", "P07", "P12", "P19", "P21", "P26", "P27",
         "K01", "W01", "W03", "W06", "W14",
         "LINT-02", "GDPR-01", "GDPR-02", "GDPR-03", "GDPR-04"
     )
@@ -220,7 +220,7 @@ if ($BashExe) {
             }
         } | Sort-Object trapId, file, line
 
-        Report-Assert "Both scanners report identical findings count (18)" ($PsNorm.Count -eq $BashNorm.Count -and $PsNorm.Count -eq 18) "PS: $($PsNorm.Count), Bash: $($BashNorm.Count)"
+        Report-Assert "Both scanners report identical findings count (20)" ($PsNorm.Count -eq $BashNorm.Count -and $PsNorm.Count -eq 20) "PS: $($PsNorm.Count), Bash: $($BashNorm.Count)"
 
         $Diff = Compare-Object $PsNorm $BashNorm -Property severity, trapId, file, line, message
         Report-Assert "Zero discrepancies in severity, trapId, file, line, message" ($null -eq $Diff)

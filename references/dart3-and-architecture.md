@@ -196,16 +196,18 @@ extension type const Cents(int value) {
 The fundamental law of Flutter state architecture is: **Use the lowest tier on the ladder that satisfies the scope of the state.** Escalating trivial local interactions into global state management libraries introduces indirection, memory leaks, and unnecessary rebuilds. Always respect the existing architecture of the user's repository: if the project already uses BLoC, Riverpod, or Provider, follow its established patterns rather than introducing conflicting state mechanisms.
 
 ```
-       [Tier 4: Global Reactive Bus (Riverpod / BLoC)]
+       [Tier 4: Enterprise Bus (BLoC / Cubit)]
                            ▲
-       [Tier 3: Flow / Screen Store (ChangeNotifier)]
+       [Tier 3: Domain Module (Riverpod / Provider)]
                            ▲
-       [Tier 2: Targeted Rebuilding (ValueNotifier / ListenableBuilder)]
+       [Tier 2: Scoped Subtree (ChangeNotifier / InheritedNotifier)]
                            ▲
-       [Tier 1: Ephemeral Leaf State (setState in StatefulWidget)]
+       [Tier 1: Ephemeral Leaf State (setState / ValueNotifier)]
 ```
 
-### 2.1 Tier 1: `setState` on Isolated Leaf Widgets
+### 2.1 Tier 1: Ephemeral Leaf State (`setState` / `ValueNotifier`)
+
+#### `setState` on Isolated Leaf Widgets
 - **Scope**: Private to a single widget; does not leave the subtree.
 - **Valid Use Cases**: Checkbox toggles, password visibility toggles, local expand/collapse animations, text field character counters.
 - **Rule**: Extract the stateful leaf widget to isolate rebuild boundaries. Never call `setState` at the root of a screen Scaffold.
@@ -239,8 +241,8 @@ class _PasswordFieldState extends State<PasswordField> {
 }
 ```
 
-### 2.2 Tier 2: `ValueNotifier` & `ListenableBuilder`
-- **Scope**: Targeted property reactivity across a small widget subtree without `StatefulWidget` boilerplate.
+#### `ValueNotifier` & `ListenableBuilder`
+- **Scope**: Still Tier 1: targeted property reactivity for one widget or a tiny subtree without `StatefulWidget` boilerplate.
 - **Valid Use Cases**: Search bar query debouncing, local tab switching, scroll-to-top button appearance, cart item counter.
 - **Advantage**: Rebuilds only the widget wrapped in `ListenableBuilder` or `ValueListenableBuilder`.
 
@@ -280,7 +282,7 @@ class SearchFilterSection extends StatelessWidget {
 }
 ```
 
-### 2.3 Tier 3: `ChangeNotifier` for Multi-Property Feature Flows
+### 2.2 Tier 2: Scoped Subtree (`ChangeNotifier` / `InheritedNotifier`)
 - **Scope**: A complex single screen, modal flow, or wizard requiring cohesive business logic and multiple reactive properties.
 - **Valid Use Cases**: Multi-step checkout controller, complex form validation engine, audio playback controller.
 - **Lifecycle Invariant**: Always guard calls to `notifyListeners()` with a `_isDisposed` flag or cancel ongoing asynchronous operations when `dispose()` is executed.
@@ -326,11 +328,16 @@ class CheckoutViewModel extends ChangeNotifier {
 }
 ```
 
-### 2.4 Tier 4: Riverpod / BLoC for Enterprise & Global State
-- **Scope**: Cross-feature state, authenticated sessions, real-time WebSocket pipelines, caching layers, offline-first sync.
-- **Valid Use Cases**: Authentication state, global shopping cart, user profile caching, theme switching.
-- **BLoC (Business Logic Component)**: Enforces strict unidirectional event-driven streams `(Event -> BLoC -> State)` with an audit log.
-- **Riverpod**: Declarative dependency injection combined with automatic cache management, state auto-disposal, and asynchronous computation pipelines.
+### 2.3 Tier 3: Domain Module (Riverpod / Provider)
+- **Scope**: Cross-feature state shared by several screens: authenticated session, repository caches, user profile, theme.
+- **Valid Use Cases**: Authentication state, global shopping cart, user profile caching, offline-first sync.
+- **Riverpod**: Declarative dependency injection combined with automatic cache management, state auto-disposal (`autoDispose`), and asynchronous computation pipelines (`AsyncNotifier`).
+- **Provider**: Same tier when the project already uses it; prefer `ChangeNotifierProvider(create:)` so the owner disposes the notifier.
+
+### 2.4 Tier 4: Enterprise Bus (BLoC / Cubit)
+- **Scope**: Event-driven flows that need auditability, replay, or strict concurrency control (`bloc_concurrency` transformers).
+- **Valid Use Cases**: Multi-step wizards, payment and checkout flows, real-time WebSocket pipelines, audit-logged enterprise state machines.
+- **BLoC (Business Logic Component)**: Enforces strict unidirectional event-driven streams `(Event -> BLoC -> State)` with an audit log. Use `Cubit` when events are not needed.
 
 ```dart
 // BLoC Architecture Example

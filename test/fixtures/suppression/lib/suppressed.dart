@@ -34,7 +34,7 @@ class _SuppressedTestWidgetState extends State<SuppressedTestWidget> with Single
 
   @override
   Widget build(BuildContext context) {
-    // flutter-ultimate:ignore P04
+    // flutter-ultimate:ignore P32
     final paint = Paint();
 
     // flutter-ultimate:ignore P07

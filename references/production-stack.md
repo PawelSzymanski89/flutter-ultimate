@@ -203,8 +203,8 @@ class SecureVaultService {
       resetOnError: true, // Prevents bricking on device backup restoration
     ),
     iOptions: IOSOptions(
-      accessibility: KeychainAccessibility.first_unlock_this_device_only,
-      synchronizable: false, // Prevents syncing secure tokens to iCloud Keychain
+      accessibility: KeychainAccessibility.first_unlock_this_device,
+      synchronizable: false, // Keeps tokens out of iCloud Keychain sync (device backups are governed by the *_this_device accessibility class)
     ),
   );
 
@@ -225,7 +225,7 @@ class SecureVaultService {
 ### 3.2 Secure Storage Cardinal Rules
 1. **Never Store Large Data**: Do not store JSON blobs, image bytes, or full user profiles in Secure Storage. Keystore/Keychain operations have heavy IPC overhead (~10-50ms).
 2. **Key Derivation Role**: Store only small high-entropy secrets (JWT tokens, refresh tokens, and the 256-bit AES encryption key for Hive/SQLite).
-3. **Backup Protection**: Always set `synchronizable: false` on iOS so auth tokens do not leak into unencrypted device backups.
+3. **Sync & Backup Protection**: Set `synchronizable: false` on iOS so auth tokens never sync through iCloud Keychain, and use a `*_this_device` accessibility class so they are not restored onto another device from a backup.
 
 ---
 

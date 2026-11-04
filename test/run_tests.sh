@@ -199,7 +199,7 @@ else
 fi
 
 expected_traps=(
-  "P03" "P04" "P07" "P12" "P19" "P21" "P26" "P27"
+  "P03" "P32" "P07" "P12" "P19" "P21" "P26" "P27"
   "K01" "W01" "W03" "W06" "W14"
   "LINT-02" "GDPR-01" "GDPR-02" "GDPR-03" "GDPR-04"
 )
@@ -311,7 +311,7 @@ if [[ -n "$PWSH_CMD" ]]; then
   ' "$pos_output" "$ps_pos" 2>&1)
   diff_pos_exit=$?
 
-  report_assert "Positive fixture parity: 18 findings with zero discrepancies in (severity, trapId, file, line, message)" $(( diff_pos_exit == 0 ? 1 : 0 )) "$diff_pos"
+  report_assert "Positive fixture parity: 20 findings with zero discrepancies in (severity, trapId, file, line, message)" $(( diff_pos_exit == 0 ? 1 : 0 )) "$diff_pos"
 
   # shellcheck disable=SC2016
   diff_neg=$(node -e '

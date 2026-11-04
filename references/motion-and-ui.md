@@ -387,7 +387,7 @@ Widget buildHeroCard({
                   BorderRadius.circular(0.0),
                   curvedAnimation.value,
                 )!,
-                child: toHeroContext.widget,
+                child: (toHeroContext.widget as Hero).child, // the default shuttle also flies toHero.child, never the Hero itself
               ),
             ),
           );

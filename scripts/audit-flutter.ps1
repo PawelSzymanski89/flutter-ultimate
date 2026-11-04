@@ -185,11 +185,11 @@ foreach ($FileItem in $DartFiles) {
             }
         }
 
-        # P04: Instantiating Paint/Path inside build or paint method
+        # P32: Instantiating Paint/Path inside build or paint method
         if ($InBuildOrPaint -and $Line -match "\b(?:final|var|\bPaint|\bPath)\s+\w+\s*=\s*(?:new\s+)?(Paint|Path)\s*\(\s*\)") {
-            if (-not (& $IsSuppressed $LineNum "P04")) {
+            if (-not (& $IsSuppressed $LineNum "P32")) {
                 $Type = $Matches[1]
-                Add-Finding -File $FileItem.FullName -Line $LineNum -Severity "HIGH" -TrapId "P04" `
+                Add-Finding -File $FileItem.FullName -Line $LineNum -Severity "HIGH" -TrapId "P32" `
                     -Message "Allocating $Type inside build/paint causes GC churn. Cache as static final or member variable."
             }
         }
@@ -278,33 +278,14 @@ foreach ($FileItem in $DartFiles) {
                 $StateClassStart = $s
                 $StateDepth = 0
                 $StateClassEnd = $TotalLines
+                $ClassBody = ""
 
-                # Extract dispose() method body of this specific State class
-                $DisposeBody = ""
-                $InDispose = $false
-                $DispDepth = 0
-
+                # Find the end of this State class and collect its body (release calls are searched in the whole class)
                 for ($k = $s; $k -lt $TotalLines; $k++) {
                     $KLine = $Lines[$k]
                     $KOpens = ($KLine.ToCharArray() | Where-Object { $_ -eq '{' }).Count
                     $KCloses = ($KLine.ToCharArray() | Where-Object { $_ -eq '}' }).Count
-
-                    if ($KLine -match "void\s+dispose\s*\(\s*\)\s*\{" -or $KLine -match "^\s*dispose\s*\(\s*\)\s*\{") {
-                        $InDispose = $true
-                        $DispDepth = 1
-                    } elseif (-not $InDispose -and $KLine -match "void\s+dispose\s*\(\s*\)") {
-                        $InDispose = $true
-                        $DispDepth = 0
-                    }
-
-                    if ($InDispose) {
-                        $DispDepth += ($KOpens - $KCloses)
-                        $DisposeBody += $KLine + "`n"
-                        if ($DispDepth -le 0 -and $KLine -match "\}") {
-                            $InDispose = $false
-                        }
-                    }
-
+                    $ClassBody += $KLine + "`n"
                     $StateDepth += ($KOpens - $KCloses)
                     if ($StateDepth -eq 0 -and $KLine -match "\}") {
                         $StateClassEnd = $k
@@ -312,88 +293,66 @@ foreach ($FileItem in $DartFiles) {
                     }
                 }
 
-                # Scan for resources created in this State class
-                $ClassInnerDepth = 0
-                $InInitState = $false
-                $InitStateDepth = 0
-
+                # Scan for resources created anywhere in this State class (fields, initState, didChangeDependencies, methods)
                 for ($m = $StateClassStart; $m -le $StateClassEnd; $m++) {
                     $MLine = $Lines[$m]
                     $MLineNum = $m + 1
 
                     if ($MLine -match "^\s*//") { continue }
 
-                    $MOpens = ($MLine.ToCharArray() | Where-Object { $_ -eq '{' }).Count
-                    $MCloses = ($MLine.ToCharArray() | Where-Object { $_ -eq '}' }).Count
-
-                    if ($MLine -match "void\s+initState\s*\(") {
-                        $InInitState = $true
-                        $InitStateDepth = $ClassInnerDepth + 1
-                    }
-
-                    $ClassInnerDepth += ($MOpens - $MCloses)
-
-                    if ($InInitState -and $ClassInnerDepth -lt $InitStateDepth) {
-                        $InInitState = $false
-                    }
-
-                    $IsStateResource = ($ClassInnerDepth -le 1 -or $InInitState)
-
-                    if ($IsStateResource) {
-                        # W01: Controllers
-                        foreach ($ctrl in $Controllers) {
-                            if ($MLine -match "(?:^|[^A-Za-z0-9_])([A-Za-z0-9_]+)\s*=\s*(?:new\s+)?$ctrl(?:$|[^A-Za-z0-9_])") {
-                                $VarName = $Matches[1]
-                                if ($VarName -and $VarName -ne "new") {
-                                    $DisposeRegex = "(?:^|[^A-Za-z0-9_])$VarName\.dispose\s*\("
-                                    if ($DisposeBody -notmatch $DisposeRegex) {
-                                        if (-not (& $IsSuppressed $MLineNum "W01")) {
-                                            Add-Finding -File $FileItem.FullName -Line $MLineNum -Severity "CRITICAL" -TrapId "W01" `
-                                                -Message "Resource '$VarName' ($ctrl) is instantiated in State but never disposed via '$VarName.dispose()' in dispose()."
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        # W14: StreamController
-                        if ($MLine -match "(?:^|[^A-Za-z0-9_])([A-Za-z0-9_]+)\s*=\s*(?:new\s+)?StreamController(?:$|[^A-Za-z0-9_])") {
+                    # W01: Controllers
+                    foreach ($ctrl in $Controllers) {
+                        if ($MLine -match "(?:^|[^A-Za-z0-9_])([A-Za-z0-9_]+)\s*=\s*(?:new\s+)?$ctrl(?:$|[^A-Za-z0-9_])") {
                             $VarName = $Matches[1]
                             if ($VarName -and $VarName -ne "new") {
-                                $CloseRegex = "(?:^|[^A-Za-z0-9_])$VarName\.close\s*\("
-                                if ($DisposeBody -notmatch $CloseRegex) {
-                                    if (-not (& $IsSuppressed $MLineNum "W14")) {
-                                        Add-Finding -File $FileItem.FullName -Line $MLineNum -Severity "CRITICAL" -TrapId "W14" `
-                                            -Message "Stream sink '$VarName' (StreamController) must be closed via '$VarName.close()' in dispose()."
+                                $DisposeRegex = "(?:^|[^A-Za-z0-9_])$VarName\.dispose\s*\("
+                                if ($ClassBody -notmatch $DisposeRegex) {
+                                    if (-not (& $IsSuppressed $MLineNum "W01")) {
+                                        Add-Finding -File $FileItem.FullName -Line $MLineNum -Severity "CRITICAL" -TrapId "W01" `
+                                            -Message "Resource '$VarName' ($ctrl) is instantiated in State but never disposed via '$VarName.dispose()' in dispose()."
                                     }
                                 }
                             }
                         }
+                    }
 
-                        # W03: StreamSubscription
-                        if ($MLine -match "(?:^|[^A-Za-z0-9_])([A-Za-z0-9_]+)\s*=[^;\n]*\.listen\s*\(") {
-                            $VarName = $Matches[1]
-                            if ($VarName) {
-                                $CancelRegex = "(?:^|[^A-Za-z0-9_])$VarName(?:\?\.|\.)cancel\s*\("
-                                if ($DisposeBody -notmatch $CancelRegex) {
-                                    if (-not (& $IsSuppressed $MLineNum "W03")) {
-                                        Add-Finding -File $FileItem.FullName -Line $MLineNum -Severity "CRITICAL" -TrapId "W03" `
-                                            -Message "StreamSubscription '$VarName' is active but never cancelled via '$VarName.cancel()' in dispose()."
-                                    }
+                    # W14: StreamController
+                    if ($MLine -match "(?:^|[^A-Za-z0-9_])([A-Za-z0-9_]+)\s*=\s*(?:new\s+)?StreamController(?:$|[^A-Za-z0-9_])") {
+                        $VarName = $Matches[1]
+                        if ($VarName -and $VarName -ne "new") {
+                            $CloseRegex = "(?:^|[^A-Za-z0-9_])$VarName\.close\s*\("
+                            if ($ClassBody -notmatch $CloseRegex) {
+                                if (-not (& $IsSuppressed $MLineNum "W14")) {
+                                    Add-Finding -File $FileItem.FullName -Line $MLineNum -Severity "CRITICAL" -TrapId "W14" `
+                                        -Message "Stream sink '$VarName' (StreamController) must be closed via '$VarName.close()' in dispose()."
                                 }
                             }
                         }
+                    }
 
-                        # W06: Timer
-                        if ($MLine -match "(?:^|[^A-Za-z0-9_])([A-Za-z0-9_]+)\s*=\s*Timer(?:\.periodic)?\s*\(") {
-                            $VarName = $Matches[1]
-                            if ($VarName) {
-                                $CancelRegex = "(?:^|[^A-Za-z0-9_])$VarName(?:\?\.|\.)cancel\s*\("
-                                if ($DisposeBody -notmatch $CancelRegex) {
-                                    if (-not (& $IsSuppressed $MLineNum "W06")) {
-                                        Add-Finding -File $FileItem.FullName -Line $MLineNum -Severity "CRITICAL" -TrapId "W06" `
-                                            -Message "Timer '$VarName' is running in event loop but never cancelled via '$VarName.cancel()' in dispose()."
-                                    }
+                    # W03: StreamSubscription
+                    if ($MLine -match "(?:^|[^A-Za-z0-9_])([A-Za-z0-9_]+)\s*=[^;\n]*\.listen\s*\(") {
+                        $VarName = $Matches[1]
+                        if ($VarName) {
+                            $CancelRegex = "(?:^|[^A-Za-z0-9_])$VarName(?:\?\.|\.)cancel\s*\("
+                            if ($ClassBody -notmatch $CancelRegex) {
+                                if (-not (& $IsSuppressed $MLineNum "W03")) {
+                                    Add-Finding -File $FileItem.FullName -Line $MLineNum -Severity "CRITICAL" -TrapId "W03" `
+                                        -Message "StreamSubscription '$VarName' is active but never cancelled via '$VarName.cancel()' in dispose()."
+                                }
+                            }
+                        }
+                    }
+
+                    # W06: Timer
+                    if ($MLine -match "(?:^|[^A-Za-z0-9_])([A-Za-z0-9_]+)\s*=\s*Timer(?:\.periodic)?\s*\(") {
+                        $VarName = $Matches[1]
+                        if ($VarName) {
+                            $CancelRegex = "(?:^|[^A-Za-z0-9_])$VarName(?:\?\.|\.)cancel\s*\("
+                            if ($ClassBody -notmatch $CancelRegex) {
+                                if (-not (& $IsSuppressed $MLineNum "W06")) {
+                                    Add-Finding -File $FileItem.FullName -Line $MLineNum -Severity "CRITICAL" -TrapId "W06" `
+                                        -Message "Timer '$VarName' is running in event loop but never cancelled via '$VarName.cancel()' in dispose()."
                                 }
                             }
                         }

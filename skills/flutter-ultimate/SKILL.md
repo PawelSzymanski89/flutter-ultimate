@@ -54,7 +54,7 @@ Consult deep reference guides for concrete catalogs, syntax blueprints, and edge
 | **Production Stack** | `references/production-stack.md` | `go_router` (StatefulShellRoute, auth guards), `flutter_bloc` (transformers, boundaries), `flutter_secure_storage` (hardware keystores), and `hive` (encrypted & LazyBox bounds). |
 | **Platform, Privacy & Security** | `references/platform-and-security.md` | RODO/GDPR native tracking toggles in AndroidManifest.xml and Info.plist, keyboard insets, SafeArea layout rules, and biometric storage. |
 | **Linter Configuration** | `assets/analysis_options.yaml` | Production-grade compiler and linter rules enforcing strict typing, const propagation, and resource disposal checks. |
-| **Deterministic Audit** | `scripts/audit-flutter.ps1`<br>`scripts/audit-flutter.sh` | Automated static analysis scripts running deterministic pattern detection for active core rules (P03-P27, K01, W01-W14, LINT, GDPR). |
+| **Deterministic Audit** | `scripts/audit-flutter.ps1`<br>`scripts/audit-flutter.sh` | Automated static analysis scripts running deterministic pattern detection for active core rules (P03, P07, P12, P19, P21, P26, P27, P32, K01, W01, W03, W06, W14, LINT, GDPR). |
 
 ---
 
@@ -192,7 +192,7 @@ Activate this mode when auditing a codebase for jank, leaks, anti-patterns, or p
 Verify that `pubspec.yaml` has an up-to-date linter in `dev_dependencies`:
 ```yaml
 dev_dependencies:
-  flutter_lints: ^5.0.0 # Or minimum ^4.0.0 matching Flutter SDK
+  flutter_lints: ^6.0.0 # 5.x is still accepted; 1.x-3.x is flagged as LINT-02
 ```
 Verify baseline linter rules in `analysis_options.yaml`:
 ```yaml
@@ -276,7 +276,8 @@ final globalStore = StreamController<GlobalEvent>.broadcast();
 ```
 
 Rules for suppression:
-- Must supply both valid trap ID (e.g., `P12`, `W03`, `K05`) and substantive reason.
+- Must supply both a trap ID emitted by the audit script (e.g., `P12`, `W03`, `K01`) and a substantive reason.
+- Place the comment on the line directly above the flagged line. For `K01` that is the line that uses the context after the `await`, not the `await` itself.
 - Never suppress CRITICAL `use_build_context_synchronously` or unclosed native resource handles without peer review.
 
 ---
@@ -292,5 +293,5 @@ An engineering or audit task is complete ONLY when all applicable criteria pass:
 - [ ] **List Virtualization**: All collections with dynamic or >10 items use `.builder` constructors with bounded layouts.
 - [ ] **Battery & Lifecycle Wired**: Long-running timers or continuous updates pause when the app transitions to background via `AppLifecycleListener`.
 - [ ] **Privacy Defaults Intact**: Android and iOS manifests disable automatic tracking until user consent is captured.
-- [ ] **Linter Package Up-to-Date**: `pubspec.yaml` declares a current linter package (`flutter_lints: ^5.0.0` or `very_good_analysis`) in `dev_dependencies`.
+- [ ] **Linter Package Up-to-Date**: `pubspec.yaml` declares a current linter package (`flutter_lints` 5.x or newer, or `very_good_analysis`) in `dev_dependencies`.
 - [ ] **Static Audit Passes**: Executing `scripts/audit-flutter.ps1` or `scripts/audit-flutter.sh` yields exit code 0 (zero CRITICAL/HIGH findings).

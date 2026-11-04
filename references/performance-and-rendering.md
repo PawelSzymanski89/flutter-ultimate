@@ -105,7 +105,7 @@ Any synchronous CPU-bound Dart operation exceeding **2 ms** during an ongoing in
   ```
 
 #### P3. Helper `_buildX()` Methods vs Dedicated `StatelessWidget` Classes
-* **Severity**: MEDIUM
+* **Severity**: LOW
 * **Mechanism**: Helper methods that return widgets (`Widget _buildHeader()`) share the parent's `BuildContext` and lack a dedicated `Element` boundary. They cannot be `const`, cannot be cached by the framework, and must re-execute completely whenever the parent rebuilds. A separate widget class provides an independent rebuild scope and lifecycle hooks.
 * **Remediation**:
   ```dart
@@ -568,15 +568,17 @@ class ParserWorker {
     final commandPort = ReceivePort();
     initialSendPort.send(commandPort.sendPort);
 
+    // A ReceivePort is a single-subscription stream: listen exactly once and
+    // dispatch on the message type (the first message is the reply port).
+    SendPort? replyPort;
     commandPort.listen((message) {
       if (message is SendPort) {
-        final replyPort = message;
-        commandPort.listen((task) {
-          final (int id, dynamic payload) = task as (int, dynamic);
-          final result = _heavyCalculation(payload);
-          replyPort.send((id, result));
-        });
+        replyPort = message;
+        return;
       }
+      final (int id, dynamic payload) = message as (int, dynamic);
+      final result = _heavyCalculation(payload);
+      replyPort?.send((id, result));
     });
   }
 

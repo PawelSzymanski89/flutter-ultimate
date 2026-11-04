@@ -234,11 +234,11 @@ while IFS= read -r file; do
       fi
     fi
 
-    # P04: Instantiating Paint/Path inside build or paint
+    # P32: Instantiating Paint/Path inside build or paint
     if [[ "$in_build_or_paint" = true ]] && [[ "$line" =~ (final|var|Paint|Path)[[:space:]]+[A-Za-z0-9_]+[[:space:]]*=[[:space:]]*(new[[:space:]]+)?(Paint|Path)[[:space:]]*\([[:space:]]*\) ]]; then
       type_name="${BASH_REMATCH[3]}"
-      if ! is_suppressed "$line_num" "P04"; then
-        add_finding "$file" "$line_num" "HIGH" "P04" "Allocating $type_name inside build/paint causes GC churn. Cache as static final or member variable."
+      if ! is_suppressed "$line_num" "P32"; then
+        add_finding "$file" "$line_num" "HIGH" "P32" "Allocating $type_name inside build/paint causes GC churn. Cache as static final or member variable."
       fi
     fi
 
@@ -323,33 +323,14 @@ while IFS= read -r file; do
         state_class_start=$s
         state_depth=0
         state_class_end=$total_lines
+        class_body=""
 
-        # Extract dispose() method body of this specific State class
-        dispose_body=""
-        in_dispose=false
-        disp_depth=0
-
+        # Find the end of this State class and collect its body (release calls are searched in the whole class)
         for ((k=s; k<total_lines; k++)); do
           k_line="${lines[$k]}"
           k_open="${k_line//[^{]/}"
           k_close="${k_line//[^\}]/}"
-
-          if [[ "$k_line" =~ void[[:space:]]+dispose[[:space:]]*\([[:space:]]*\)[[:space:]]*\{ || "$k_line" =~ ^[[:space:]]*dispose[[:space:]]*\([[:space:]]*\)[[:space:]]*\{ ]]; then
-            in_dispose=true
-            disp_depth=1
-          elif [[ "$in_dispose" = false && "$k_line" =~ void[[:space:]]+dispose[[:space:]]*\([[:space:]]*\) ]]; then
-            in_dispose=true
-            disp_depth=0
-          fi
-
-          if [[ "$in_dispose" = true ]]; then
-            disp_depth=$((disp_depth + ${#k_open} - ${#k_close}))
-            dispose_body+="$k_line"$'\n'
-            if (( disp_depth <= 0 )) && [[ "$k_line" =~ \} ]]; then
-              in_dispose=false
-            fi
-          fi
-
+          class_body+="$k_line"$'\n'
           state_depth=$((state_depth + ${#k_open} - ${#k_close}))
           if (( state_depth == 0 )) && [[ "$k_line" =~ \} ]]; then
             state_class_end=$k
@@ -357,11 +338,7 @@ while IFS= read -r file; do
           fi
         done
 
-        # Scan for resources created in this State class
-        class_inner_depth=0
-        in_init_state=false
-        init_state_depth=0
-
+        # Scan for resources created anywhere in this State class (fields, initState, didChangeDependencies, methods)
         for ((m=state_class_start; m<=state_class_end; m++)); do
           m_line="${lines[$m]}"
           m_line_num=$((m + 1))
@@ -370,73 +347,52 @@ while IFS= read -r file; do
             continue
           fi
 
-          m_open="${m_line//[^{]/}"
-          m_close="${m_line//[^\}]/}"
-
-          if [[ "$m_line" =~ void[[:space:]]+initState[[:space:]]*\( ]]; then
-            in_init_state=true
-            init_state_depth=$((class_inner_depth + 1))
-          fi
-
-          class_inner_depth=$((class_inner_depth + ${#m_open} - ${#m_close}))
-
-          if [[ "$in_init_state" = true ]] && (( class_inner_depth < init_state_depth )); then
-            in_init_state=false
-          fi
-
-          is_state_resource=false
-          if (( class_inner_depth <= 1 )) || [[ "$in_init_state" = true ]]; then
-            is_state_resource=true
-          fi
-
-          if [[ "$is_state_resource" = true ]]; then
-            # W01: Controllers
-            for ctrl in "${controllers[@]}"; do
-              if [[ "$m_line" =~ (^|[^A-Za-z0-9_])([A-Za-z0-9_]+)[[:space:]]*=[[:space:]]*(new[[:space:]]+)?$ctrl($|[^A-Za-z0-9_]) ]]; then
-                var_name="${BASH_REMATCH[2]}"
-                if [[ -n "$var_name" && "$var_name" != "new" ]]; then
-                  if ! echo "$dispose_body" | grep -Eqs "(^|[^A-Za-z0-9_])$var_name\.dispose[[:space:]]*\("; then
-                    if ! is_suppressed "$m_line_num" "W01"; then
-                      add_finding "$file" "$m_line_num" "CRITICAL" "W01" "Resource '$var_name' ($ctrl) is instantiated in State but never disposed via '$var_name.dispose()' in dispose()."
-                    fi
-                  fi
-                fi
-              fi
-            done
-
-            # W14: StreamController
-            if [[ "$m_line" =~ (^|[^A-Za-z0-9_])([A-Za-z0-9_]+)[[:space:]]*=[[:space:]]*(new[[:space:]]+)?StreamController($|[^A-Za-z0-9_]) ]]; then
+          # W01: Controllers
+          for ctrl in "${controllers[@]}"; do
+            if [[ "$m_line" =~ (^|[^A-Za-z0-9_])([A-Za-z0-9_]+)[[:space:]]*=[[:space:]]*(new[[:space:]]+)?$ctrl($|[^A-Za-z0-9_]) ]]; then
               var_name="${BASH_REMATCH[2]}"
               if [[ -n "$var_name" && "$var_name" != "new" ]]; then
-                if ! echo "$dispose_body" | grep -Eqs "(^|[^A-Za-z0-9_])$var_name\.close[[:space:]]*\("; then
-                  if ! is_suppressed "$m_line_num" "W14"; then
-                    add_finding "$file" "$m_line_num" "CRITICAL" "W14" "Stream sink '$var_name' (StreamController) must be closed via '$var_name.close()' in dispose()."
+                if ! printf '%s' "$class_body" | grep -Eqs "(^|[^A-Za-z0-9_])$var_name\.dispose[[:space:]]*\("; then
+                  if ! is_suppressed "$m_line_num" "W01"; then
+                    add_finding "$file" "$m_line_num" "CRITICAL" "W01" "Resource '$var_name' ($ctrl) is instantiated in State but never disposed via '$var_name.dispose()' in dispose()."
                   fi
                 fi
               fi
             fi
+          done
 
-            # W03: StreamSubscription
-            re_listen='(^|[^A-Za-z0-9_])([A-Za-z0-9_]+)[[:space:]]*=[^;]*\.listen[[:space:]]*\('
-            if [[ "$m_line" =~ $re_listen ]]; then
-              var_name="${BASH_REMATCH[2]}"
-              if [[ -n "$var_name" ]]; then
-                if ! echo "$dispose_body" | grep -Eqs "(^|[^A-Za-z0-9_])$var_name(\?\.|\.)cancel[[:space:]]*\("; then
-                  if ! is_suppressed "$m_line_num" "W03"; then
-                    add_finding "$file" "$m_line_num" "CRITICAL" "W03" "StreamSubscription '$var_name' is active but never cancelled via '$var_name.cancel()' in dispose()."
-                  fi
+          # W14: StreamController
+          if [[ "$m_line" =~ (^|[^A-Za-z0-9_])([A-Za-z0-9_]+)[[:space:]]*=[[:space:]]*(new[[:space:]]+)?StreamController($|[^A-Za-z0-9_]) ]]; then
+            var_name="${BASH_REMATCH[2]}"
+            if [[ -n "$var_name" && "$var_name" != "new" ]]; then
+              if ! printf '%s' "$class_body" | grep -Eqs "(^|[^A-Za-z0-9_])$var_name\.close[[:space:]]*\("; then
+                if ! is_suppressed "$m_line_num" "W14"; then
+                  add_finding "$file" "$m_line_num" "CRITICAL" "W14" "Stream sink '$var_name' (StreamController) must be closed via '$var_name.close()' in dispose()."
                 fi
               fi
             fi
+          fi
 
-            # W06: Timer
-            if [[ "$m_line" =~ (^|[^A-Za-z0-9_])([A-Za-z0-9_]+)[[:space:]]*=[[:space:]]*Timer(\.periodic)?[[:space:]]*\( ]]; then
-              var_name="${BASH_REMATCH[2]}"
-              if [[ -n "$var_name" ]]; then
-                if ! echo "$dispose_body" | grep -Eqs "(^|[^A-Za-z0-9_])$var_name(\?\.|\.)cancel[[:space:]]*\("; then
-                  if ! is_suppressed "$m_line_num" "W06"; then
-                    add_finding "$file" "$m_line_num" "CRITICAL" "W06" "Timer '$var_name' is running in event loop but never cancelled via '$var_name.cancel()' in dispose()."
-                  fi
+          # W03: StreamSubscription
+          re_listen='(^|[^A-Za-z0-9_])([A-Za-z0-9_]+)[[:space:]]*=[^;]*\.listen[[:space:]]*\('
+          if [[ "$m_line" =~ $re_listen ]]; then
+            var_name="${BASH_REMATCH[2]}"
+            if [[ -n "$var_name" ]]; then
+              if ! printf '%s' "$class_body" | grep -Eqs "(^|[^A-Za-z0-9_])$var_name(\?\.|\.)cancel[[:space:]]*\("; then
+                if ! is_suppressed "$m_line_num" "W03"; then
+                  add_finding "$file" "$m_line_num" "CRITICAL" "W03" "StreamSubscription '$var_name' is active but never cancelled via '$var_name.cancel()' in dispose()."
+                fi
+              fi
+            fi
+          fi
+
+          # W06: Timer
+          if [[ "$m_line" =~ (^|[^A-Za-z0-9_])([A-Za-z0-9_]+)[[:space:]]*=[[:space:]]*Timer(\.periodic)?[[:space:]]*\( ]]; then
+            var_name="${BASH_REMATCH[2]}"
+            if [[ -n "$var_name" ]]; then
+              if ! printf '%s' "$class_body" | grep -Eqs "(^|[^A-Za-z0-9_])$var_name(\?\.|\.)cancel[[:space:]]*\("; then
+                if ! is_suppressed "$m_line_num" "W06"; then
+                  add_finding "$file" "$m_line_num" "CRITICAL" "W06" "Timer '$var_name' is running in event loop but never cancelled via '$var_name.cancel()' in dispose()."
                 fi
               fi
             fi

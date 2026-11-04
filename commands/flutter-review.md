@@ -19,7 +19,7 @@ Systematically evaluate against the **Flutter Ultimate** standards in strict pri
    - **Missing `const` Constructors (P01)**: Missing `const` on unchanging widget trees, causing unnecessary element reconciliation.
    - **Root `setState` Invalidation (P02)**: Whole-screen `setState()` calls at the Scaffold root instead of scoped leaf rebuilding or `ValueNotifier`.
    - **Helper `_buildX()` Methods (P03)**: Inline helper methods instead of dedicated `StatelessWidget` classes with `const` constructors.
-   - **Allocations in `build()` / `paint()` (P04, P32)**: Instantiating `Paint`, `Path`, `TextStyle`, or regexes inside `build()` or `paint()`.
+   - **Allocations in `build()` / `paint()` (P32)**: Instantiating `Paint`, `Path`, `TextStyle`, or regexes inside `build()` or `paint()`.
    - **Unfiltered `MediaQuery.of(context)` (P07)**: Calling `MediaQuery.of(context)` instead of selective `MediaQuery.sizeOf(context)` or `viewInsetsOf(context)`.
    - **Eager Async Instantiation (P12)**: Instantiating `future: api.fetch()` or `stream:` directly inside `FutureBuilder` or `StreamBuilder` without caching in state.
    - **Unvirtualized Lists & ShrinkWrap (P18, P19)**: Unvirtualized collections or nested `shrinkWrap: true` forcing two-pass layout calculation.
@@ -27,7 +27,7 @@ Systematically evaluate against the **Flutter Ultimate** standards in strict pri
    - **AnimatedBuilder Isolation (P09)**: `AnimatedBuilder` omitting the static `child` parameter, re-rendering static subtrees on every animation tick.
 
 3. **DART 3 & ARCHITECTURE**:
-   - **4-Tier State Ladder**: Ephemeral leaf `setState` -> Targeted rebuild `ValueNotifier` -> Scoped store `ChangeNotifier` -> Enterprise bus `BLoC` / `Riverpod`.
+   - **4-Tier State Ladder**: Tier 1 ephemeral leaf `setState` / `ValueNotifier` -> Tier 2 scoped `ChangeNotifier` -> Tier 3 domain module `Riverpod` / `Provider` -> Tier 4 enterprise bus `BLoC` / `Cubit`. Respect the project's existing stack.
    - **Sealed State Machines**: Feature UI states modeled as `sealed class` with exhaustive pattern matching; zero boolean/nullable-string state representations.
    - **Zero-Cost Domain Modeling**: Primitive obsession eliminated via `extension type` for IDs, entities, and currency.
    - **Production Ecosystem**:

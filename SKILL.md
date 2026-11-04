@@ -50,6 +50,7 @@ Consult deep reference guides for concrete catalogs, syntax blueprints, and edge
 | **Memory & Lifecycle** | `references/memory-and-lifecycle.md` | Traps W1-W20 & K1-K14: Resource disposal pairing, stream cancellation, BuildContext async gap guards, mounted checks, and `AppLifecycleListener` background state handling. |
 | **Motion, UI & Slivers** | `references/motion-and-ui.md` | Physics simulations (`Curves.easeOutCubic`), `AnimatedBuilder` optimization, sliver architecture, `Hero` shuttle builders, design tokens, and haptic feedback. |
 | **Dart 3 & Architecture** | `references/dart3-and-architecture.md` | 4-tier state selection ladder, Dart 3 sealed class models, records, pattern matching, immutable data pipelines, and Clean Architecture boundaries. |
+| **Production Stack** | `references/production-stack.md` | `go_router` (StatefulShellRoute, auth guards), `flutter_bloc` (transformers, boundaries), `flutter_secure_storage` (hardware keystores), and `hive` (encrypted & LazyBox bounds). |
 | **Platform, Privacy & Security** | `references/platform-and-security.md` | RODO/GDPR native tracking toggles in AndroidManifest.xml and Info.plist, keyboard insets, SafeArea layout rules, and biometric storage. |
 | **Linter Configuration** | `assets/analysis_options.yaml` | Production-grade compiler and linter rules enforcing strict typing, const propagation, and resource disposal checks. |
 | **Deterministic Audit** | `scripts/audit-flutter.ps1`<br>`scripts/audit-flutter.sh` | Automated static analysis scripts running regex pattern matching against P1-P40, W1-W20, K1-K14, manifests, and `analysis_options.yaml`. |
@@ -100,8 +101,13 @@ Activate this mode when designing a new feature, screen, or domain module prior 
 ### Architectural Step-by-Step
 1. **State Tier Selection**:
    - Consult `references/dart3-and-architecture.md` to pick the simplest sufficient tier.
+   - For BLoC or complex state flows, consult `references/production-stack.md` for `bloc_concurrency` event transformers (`restartable`, `droppable`, `sequential`).
    - Default to Tier 1 for isolated widget state (toggle, text input, local animation).
    - Use Tier 3 (Riverpod) or Tier 4 (BLoC) for complex multi-screen or async domain logic.
+2. **Navigation & Persistence Architecture**:
+   - Consult `references/production-stack.md` to architect declarative navigation via `GoRouter` using `StatefulShellRoute.indexedStack` for bottom tabs.
+   - Protect sensitive secrets with `flutter_secure_storage` (hardware Keystore/Keychain).
+   - Use encrypted `Hive.openLazyBox` for offline caches exceeding 500 records to prevent OOM.
 2. **Model Definition with Sealed Classes**:
    - Define UI states as `sealed class [Feature]State` with immutable subclasses.
    - Define domain events as `sealed class [Feature]Event`.
@@ -134,6 +140,7 @@ Activate this mode when authoring or refactoring Flutter widgets, business logic
   ```
 - In `StatefulWidget` methods, use `if (!mounted) return;`.
 - Never store `BuildContext` in long-lived instance variables or pass it into detached service classes.
+- For declarative routing (`context.go` vs `context.push`) and BLoC boundary rules (`BlocBuilder` vs `BlocListener`), follow `references/production-stack.md`.
 - Consult `references/memory-and-lifecycle.md` (traps K1-K14) for async navigation, snackbars, and dialog safe patterns.
 
 ### Step 3: Motion & Physics Reflexes

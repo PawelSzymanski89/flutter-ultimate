@@ -355,6 +355,7 @@ flutter-ultimate/
 │   ├── memory-and-lifecycle.md       # Memory Leaks (W1-W20) & BuildContext Traps (K1-K14)
 │   ├── motion-and-ui.md              # Physics curves, Slivers, Hero shuttles, and design tokens
 │   ├── dart3-and-architecture.md     # Sealed classes, pattern matching, records & state ladder
+│   ├── production-stack.md           # go_router tab state, BLoC transformers, secure storage, Hive
 │   └── platform-and-security.md      # GDPR/RODO native manifests, keyboard insets, and safe areas
 ├── scripts/
 │   ├── audit-flutter.ps1             # Deterministic PowerShell static code analyzer
@@ -467,6 +468,7 @@ For exhaustive code comparisons, structural diagrams, and verified solutions, co
 - **[references/memory-and-lifecycle.md](references/memory-and-lifecycle.md)**: Full breakdown of Memory Leaks W1 through W20 (Controller disposal, stream leaks, singleton closures) and Context Traps K1 through K14 (Async gap guards, dialog navigation, and `initState` lookups).
 - **[references/motion-and-ui.md](references/motion-and-ui.md)**: Physics-based animation pipelines, custom sliver geometry, and Hero shuttle optimization.
 - **[references/dart3-and-architecture.md](references/dart3-and-architecture.md)**: Clean Architecture boundary specifications, sealed class exhaustive matching, and state ladder guidelines.
+- **[references/production-stack.md](references/production-stack.md)**: Production stack blueprints: `go_router` StatefulShellRoute tab state preservation, auth redirection, `flutter_bloc` concurrency transformers (`restartable`, `droppable`), `flutter_secure_storage` hardware keystore options, and `hive` AES-256 encrypted LazyBox memory budgeting.
 - **[references/platform-and-security.md](references/platform-and-security.md)**: Native manifest configurations, biometric storage security, and background execution limits.
 
 ---

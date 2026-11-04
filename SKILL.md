@@ -37,7 +37,7 @@ All Flutter engineering under this skill follows the three-level progressive dis
 2. **Disposal Pairing**: Every disposable resource (`TextEditingController`, `AnimationController`, `ScrollController`, `StreamSubscription`, `Timer`, `FocusNode`) must be closed in `dispose()`.
 3. **Async BuildContext Integrity**: Never use `BuildContext` across an `await` boundary without validating `if (!context.mounted) return;` or `if (!mounted) return;`.
 4. **Dart 3 Sealed Modeling & 4-Tier State**: Express state machines with `sealed` classes and exhaustively match with switch expressions. Choose the minimal state tier necessary.
-5. **Privacy & Battery by Default**: Disable third-party analytics in native manifests until explicit user consent is granted. Suspend background animations and polling via `AppLifecycleListener`.
+5. **Privacy & Battery by Default**: Disable third-party analytics in native manifests until explicit user consent is granted. Pause polling, timers and sensor streams via `AppLifecycleListener` (Flutter does not schedule frames in the background, so animations need no extra handling).
 
 ---
 
@@ -255,8 +255,8 @@ powershell -ExecutionPolicy Bypass -File scripts/audit-flutter.ps1 -Json
 | Severity | Impact | Required Action |
 | :--- | :--- | :--- |
 | **CRITICAL** | Runtime crashes, memory leaks in State (`W01`, `W03`, `W06`, `W14`), unmounted context access across await (`K01`), unclosed sinks. | Must be resolved immediately before merging or shipping. |
-| **HIGH** | Frame drops (under 60 FPS), layout thrashing (`P12`, `P19`, `P21`), active detector violations, outdated linter package. | Must be optimized to ensure 60/120 FPS pipeline. |
-| **MEDIUM** | Missing `const` constructors, broad `MediaQuery.of` dependency (`P07`), offscreen Opacity buffers (`P26`). | Refactor during scheduled quality pass. |
+| **HIGH** | Pattern-matched frame-budget risks: `P07`, `P12`, `P19`, `P21`, `P32`, outdated linter `LINT-02`. Not a CI blocker by default (`--fail-on`). | Must be optimized to ensure 60/120 FPS pipeline. |
+| **MEDIUM** | Missing `const` constructors, fractional `Opacity` (`P26`), missing linter config (`LINT-01`). | Refactor during scheduled quality pass. |
 | **LOW** | Minor style cleanups, ClipRRect optimization (`P27`), helper method extraction (`P03`), redundant containers. | Cleanup when touching file. |
 
 ### Step 4: Systematic Remediation Procedure

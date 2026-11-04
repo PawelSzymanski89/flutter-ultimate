@@ -1,6 +1,6 @@
 {
   "name": "flutter-ultimate",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "description": "Flutter / Dart rules for an AI coding agent (frame budget, resource disposal, BuildContext after await, Dart 3 state modeling, privacy defaults) plus a static audit script for CI.",
   "author": {
     "name": "Pawel Szymanski"

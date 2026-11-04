@@ -18,7 +18,8 @@ param(
     [Alias("target")]
     [string]$TargetPath = ".",
     [switch]$Json,
-    [switch]$Strict
+    [switch]$Strict,
+    [ValidateSet("CRITICAL","HIGH","MEDIUM","LOW")][string]$FailOn = "CRITICAL"
 )
 
 $ErrorActionPreference = "Stop"
@@ -555,12 +556,8 @@ if ($Json) {
     Write-Host "--------------------------------------------------"
 }
 
-$HasCritical = ($Findings | Where-Object { $_.Severity -in @("CRITICAL", "HIGH") }).Count -gt 0
-
-if ($Strict -and $Findings.Count -gt 0) {
-    exit 1
-} elseif ($HasCritical) {
-    exit 1
-} else {
-    exit 0
-}
+# Exit code: 1 when any finding is at or above -FailOn (default CRITICAL); -Strict fails on any finding.
+$Rank = @{ CRITICAL = 4; HIGH = 3; MEDIUM = 2; LOW = 1 }
+$Threshold = if ($Strict) { 1 } else { $Rank[$FailOn] }
+$Fail = @($Findings | Where-Object { $Rank[$_.Severity] -ge $Threshold }).Count -gt 0
+if ($Fail) { exit 1 } else { exit 0 }

@@ -74,7 +74,7 @@ Both commands change no code unless you ask; applied fixes carry the `// flutter
 
 ## Installation
 
-**Requirements:** `node` on `PATH` for the SessionStart hook (without it the hook does nothing and the full mode is not injected). The statusline degrades to badge-only without Node, and the audit scripts need only Bash 3.2+ or PowerShell 5.1+.
+**Requirements:** `node` on `PATH` for the SessionStart hook (without it the hook does nothing and the full mode is not injected). The statusline and the audit scripts need only Bash 3.2+ or PowerShell 5.1+.
 
 ### Mode A: Claude Code Plugin (Recommended)
 
@@ -125,7 +125,7 @@ The statusline needs a stable path. A marketplace install lives in a versioned c
 }
 ```
 
-Without `node` the badge still renders (Flutter detection is plain shell); only the optional Ponytail chaining is skipped.
+The statusline needs no `node`. Claude Code accepts one statusLine command; to keep another statusline in front of the badge set `FLUTTER_ULTIMATE_STATUSLINE_CHAIN` to its script in the same command, e.g. `FLUTTER_ULTIMATE_STATUSLINE_CHAIN=~/.claude/my-statusline.sh bash ~/.claude/skills/flutter-ultimate/hooks/statusline.sh`.
 
 ---
 
@@ -164,19 +164,21 @@ Without `node` the badge still renders (Flutter detection is plain shell); only 
 
 ### Running the Audit
 
-Exit codes: `0` clean or only MEDIUM / LOW findings, `1` any CRITICAL / HIGH finding (or any finding with `--strict`), `2` CLI error. `--json` prints `[]` for zero findings and a JSON array otherwise.
+Exit codes: `0` nothing at or above the threshold, `1` a finding at or above `--fail-on` (default `CRITICAL`; `--strict` means any finding), `2` CLI error. `--json` prints `[]` for zero findings and a JSON array otherwise.
 
 ```bash
 # Bash 3.2+ (macOS system bash, Linux, Git Bash)
 bash scripts/audit-flutter.sh                       # current directory
 bash scripts/audit-flutter.sh --target path/to/app  # another project
-bash scripts/audit-flutter.sh --json --strict       # CI: machine-readable, fail on any finding
+bash scripts/audit-flutter.sh --json                # CI: machine-readable, exit 1 on CRITICAL
+bash scripts/audit-flutter.sh --fail-on HIGH        # also block on HIGH pattern matches
+bash scripts/audit-flutter.sh --strict              # block on anything
 ```
 
 ```powershell
 # PowerShell 5.1+ / pwsh
 powershell -ExecutionPolicy Bypass -File scripts/audit-flutter.ps1
-powershell -ExecutionPolicy Bypass -File scripts/audit-flutter.ps1 -Target path\to\app -Json -Strict
+powershell -ExecutionPolicy Bypass -File scripts/audit-flutter.ps1 -Target path\to\app -Json -FailOn HIGH
 ```
 
 Suppress one finding with a comment on the line directly above it (for `K01`, above the line that uses the context, not above the `await`):
@@ -199,11 +201,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: bash scripts/audit-flutter.sh --target . --json --strict
+      - run: bash scripts/audit-flutter.sh --target . --json
 ```
 
 ```bash
-# .git/hooks/pre-commit (chmod +x); blocks the commit on CRITICAL / HIGH findings
+# .git/hooks/pre-commit (chmod +x); blocks the commit on CRITICAL findings
 #!/usr/bin/env bash
 bash scripts/audit-flutter.sh --target . >/dev/null || {
   bash scripts/audit-flutter.sh --target .
@@ -240,7 +242,7 @@ claude plugin validate .
 
 Fixtures live in `test/fixtures/`: `positive` (every detector fires at least once, 25 findings), `negative` (regression cases that must stay clean), `single` (one finding, JSON array contract), `suppression` (every finding silenced). CI runs the suites on Ubuntu, macOS (`/bin/bash`), and Windows (pwsh 7, Windows PowerShell 5.1, Git Bash).
 
-`test/decisions.md` holds 13 decision scenarios for the advanced-patterns reference. They are a reviewer checklist, not an automated test: ask the agent each scenario after changing the reference and compare with the expected choice.
+`test/decisions.md` holds 21 decision scenarios for the advanced-patterns, GPU, testing and native-bridge references. They are a reviewer checklist, not an automated test: ask the agent each scenario after changing the reference and compare with the expected choice.
 
 ---
 
@@ -280,18 +282,24 @@ Long term
 
 ## Changelog
 
-### v1.6.0 (2026-11-05)
+### v1.7.0 (2026-11-05)
+- **`--fail-on <severity>` (`-FailOn`)**: the exit code is 1 only for findings at or above the threshold, default `CRITICAL`. HIGH rules (P07, P12, P19, P21, P32, LINT-02) are pattern matches and no longer block CI by default; `--fail-on HIGH` restores the old behaviour, `--strict` still fails on anything. Severity table in `SKILL.md` aligned with the scanner (P07 is HIGH everywhere).
+- **Statusline without third-party coupling**: the Ponytail lookup is gone; `FLUTTER_ULTIMATE_STATUSLINE_CHAIN=<script>` prints any other statusline in front of the badge. No `node` needed for the statusline at all.
+- **Dead code removed**: `hooks/activate.sh` and `activate.ps1` were never called (`hooks.json` runs `activate.js`).
+- **Wording**: invented per-phase frame-budget numbers replaced by a measurement note; `RepaintBoundary` described consistently (isolation, conditional caching) in `motion-and-ui.md`; `AppLifecycleListener` tenet limited to timers, polling and sensors; last `jsonDecode > 50 KB` threshold removed from the review command; scenario count and release dates in README corrected (releases 1.4.0–1.6.0 were cut on 2026-11-04 CET).
+
+### v1.6.0 (2026-11-04)
 - **Shorter command names**: `/flutter-ultimate:review` and `/flutter-ultimate:audit` (files `commands/review.md`, `commands/audit.md`). The plugin-name prefix is added by Claude Code and cannot be dropped; the second `flutter-` was redundant. The old names are gone, update any notes that referenced them.
 
-### v1.5.0 (2026-11-05)
+### v1.5.0 (2026-11-04)
 - **Three diagnosis guides**: `references/impeller-and-gpu.md` (which thread is slow, profiling procedure, Impeller availability per platform verified against docs.flutter.dev, compositing cost as hypotheses, custom painting, fragment shaders), `references/testing-and-reliability.md` (`leak_tracker_flutter_testing` setup verified against the Flutter 3.47.5 SDK, what is and is not tracked, ownership in tests, `pumpAndSettle` / `fake_async`, pending timers, isolation) and `references/native-bridge-and-background.md` (`EventChannel` `onListen` / `onCancel` contract from the Android embedding, WorkManager and `BGTaskScheduler` facts, background isolates with `DartPluginRegistrant`, deep link before auth as a state table). Release-size and asset-budget section added to `performance-and-rendering.md` (`--analyze-size`, DevTools App Size diff, store sizes, no `tree-shake-icons` pubspec key). Routing rows and load rules in `SKILL.md`; eight new reviewer scenarios in `test/decisions.md`. Snippets analyzer-checked.
 - **Overstated rules corrected**: no "mounted guard after every await" (guard between the await and the later use), no "10 items" or "500 records" thresholds, `RepaintBoundary` isolates repaint and may or may not cache, FFI is not zero-overhead, JSON size is a hint not a rule, `BackdropFilter` is HIGH with a measurement note instead of CRITICAL, Impeller precompiles shaders but does not remove layout, overdraw or GPU cost. `discarded_futures` removed from the linter template (it flagged the manuals' own `_sub?.cancel()` in `dispose()`).
 - **Public case study** (`docs/case-study.md`): LocalSend and Immich mobile audited and sampled. Two rounds of samples exposed four K01 false-positive classes, now fixed in both scanners with regression fixtures: an arrow closure `() async => await x` scanned as if code followed the await, an `else` / `else if` branch (also `} else {` on one line) treated as running after the `await` in the `if` branch, `server.setState(...)` on another receiver matched as `State.setState`, and a global navigator accessor such as `Router.context.push(...)` matched as the widget's context. Files under top-level `test/` and `integration_test/` are no longer scanned. LocalSend went from 36 to 7 K01 findings, the 186k-line app from 138 to 124.
 
-### v1.4.1 (2026-11-05)
+### v1.4.1 (2026-11-04)
 - **Git Bash on Windows**: a CRLF checkout made the 300-character `SKILL.md` line check count the carriage return; the Bash test runner now strips it and the longest line has margin. Release 1.4.0 failed only that CI step.
 
-### v1.4.0 (2026-11-05)
+### v1.4.0 (2026-11-04)
 - **Advanced Framework Patterns**: new `references/advanced-framework-patterns.md` (275 lines): decision tables first, trust labels (Rule / Default / Trade-off / Specialist), six everyday patterns with one analyzer-checked snippet each (`LayoutBuilder` vs `MediaQuery` vs `SliverLayoutBuilder`, `AnimatedSwitcher` keys, Provider / BLoC selectors, conditional keep-alive, `TickerMode`, `Future.wait`), a supplementary table (`PageStorageKey`, `PageController.keepPage`, `RestorationMixin`, performance overlay, `compute` vs `Isolate.run`) and two specialist notes (`InheritedModel`, `RawGestureDetector`). Snippets verified with `dart analyze` on Flutter 3.47.5 / Dart 3.13.4 with `provider` 6.1 and `flutter_bloc` 9.1. Routing row and load / do-not-load rule in `SKILL.md`; `test/decisions.md` with 13 reviewer scenarios.
 - **Skill-driven changes are signed**: every edit the skill makes carries `// flutter-ultimate: <TRAP_ID> <reason>` (SKILL.md Construction Step 0, remediation step 4, `hooks/mode.md`, both commands). Project observations are reported as proposals, never written into the skill's own files during a task.
 - **K01 precision** (from the real-codebase run): the awaited statement's own argument list is skipped (dialog builders and `onPressed` callbacks inside `await showDialog(...)` are no longer reported); `mounted` inside a compound condition (`if (ok && mounted)`, `if (!ok || !mounted) return;`) is recognised as a guard. Regression fixtures added.

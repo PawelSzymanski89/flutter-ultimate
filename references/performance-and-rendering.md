@@ -25,12 +25,8 @@ Missing this budget by even 1 millisecond drops a frame, producing visual stutte
 └────────────────────────────────────────────────┴────────────────────────────┘
 ```
 
-### The Real Dart Execution Budget: 2ms – 5ms
-Although the total frame budget is 8.33ms (at 120 Hz), the UI thread cannot consume all 8.33ms for custom Dart code.
-* **Platform/Engine Overhead**: 1.0 – 1.5 ms (VSYNC alignment, message dispatching).
-* **Framework Layout & Paint**: 2.0 – 3.0 ms (RenderObject tree traversal, painting context preparation).
-* **Scene Compositing**: 0.5 – 1.0 ms (Layer assembly, conversion to `ui.Scene`).
-* **Available Budget for Application Dart Execution**: **~2.0 ms to 3.5 ms maximum**.
+### How much of the frame is yours
+The UI thread spends the frame on animate, build, layout, paint and scene submission; the raster thread works in parallel on the previous scene. How much of the 16.67 ms (or 8.33 ms) your own Dart code may take depends on how heavy the framework's build, layout and paint are for that screen, so there is no universal number. Measure the UI-thread slices in DevTools on the slowest supported device (`references/impeller-and-gpu.md`, section 1) and keep your own work well below what is left.
 
 As a rough signal, a synchronous CPU-bound Dart operation above **2 ms** during an ongoing interaction (such as scrolling, dragging, or route transitions) risks an immediate frame drop.
 

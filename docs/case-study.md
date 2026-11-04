@@ -1,6 +1,6 @@
 # Case study: the audit script on two public Flutter apps
 
-Date: 2026-11-05. Scanner: `scripts/audit-flutter.sh` from Flutter Ultimate 1.5.0 (Bash 5.3 on Apple Silicon; the PowerShell scanner produced the identical list on LocalSend). Both apps were cloned shallowly at the commits below; nothing was changed in them.
+Date: 2026-11-04 (CET). Scanner: `scripts/audit-flutter.sh` from Flutter Ultimate 1.5.0 (Bash 5.3 on Apple Silicon; the PowerShell scanner produced the identical list on LocalSend). Both apps were cloned shallowly at the commits below; nothing was changed in them.
 
 | App | Commit | Dart files (`lib/`) | Lines | Runtime |
 | :--- | :--- | ---: | ---: | ---: |

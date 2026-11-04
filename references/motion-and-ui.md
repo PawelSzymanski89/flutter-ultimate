@@ -15,7 +15,7 @@ A dropped frame (jank) occurs when the combined execution time of the **UI threa
 ### 1.1 The Layout vs. Paint Boundary Rule
 - Re-layout cascades down and up the RenderObject tree. Changing layout properties (`width`, `height`, `margin`, `padding`) inside an unconstrained animation forces recursive layout passes across ancestor and descendant nodes.
 - Re-paint is cheaper than re-layout. Transforming paint properties (`Transform`, `Opacity`, `ColorFilter`) touches only the painting phase.
-- **RepaintBoundary**: Place `RepaintBoundary` widgets around subtrees that animate frequently (e.g., spinning loaders, radar sweeps, physics springs). This isolates the animated `RenderObject` into its own layer cache and prevents repainting static ancestors.
+- **RepaintBoundary**: Consider a `RepaintBoundary` around a subtree that animates frequently while its surroundings are static (a spinner, a radar sweep). It stops repaint propagation to neighbours; whether the engine caches the layer is its decision, and each boundary costs a layer, so confirm the gain in DevTools (`references/impeller-and-gpu.md`, section 4).
 
 ```dart
 // Isolating high-frequency animation paint passes

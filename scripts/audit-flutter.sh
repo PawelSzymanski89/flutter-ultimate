@@ -6,13 +6,14 @@
 set -euo pipefail
 
 usage() {
-  echo "Usage: $0 [--target <dir>] [--json] [--strict]" >&2
+  echo "Usage: $0 [--target <dir>] [--json] [--fail-on CRITICAL|HIGH|MEDIUM|LOW] [--strict]" >&2
   exit 2
 }
 
 TARGET_PATH="."
 JSON_MODE=false
 STRICT_MODE=false
+FAIL_ON="CRITICAL"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -31,6 +32,14 @@ while [[ $# -gt 0 ]]; do
     --strict)
       STRICT_MODE=true
       shift
+      ;;
+    --fail-on)
+      if [[ $# -lt 2 ]] || ! [[ "$2" =~ ^(CRITICAL|HIGH|MEDIUM|LOW)$ ]]; then
+        echo "Error: --fail-on requires one of CRITICAL, HIGH, MEDIUM, LOW" >&2
+        usage
+      fi
+      FAIL_ON="$2"
+      shift 2
       ;;
     -h|--help)
       usage
@@ -649,20 +658,20 @@ else
   echo "--------------------------------------------------"
 fi
 
-has_critical=false
+# Exit code: 1 when any finding is at or above --fail-on (default CRITICAL); --strict fails on any finding.
+sev_rank() { case "$1" in CRITICAL) echo 4 ;; HIGH) echo 3 ;; MEDIUM) echo 2 ;; LOW) echo 1 ;; *) echo 0 ;; esac; }
+threshold=$(sev_rank "$FAIL_ON")
+[[ "$STRICT_MODE" = true ]] && threshold=1
+fail=false
 if (( ${#FINDINGS[@]} > 0 )); then
   for f in "${FINDINGS[@]}"; do
-    if [[ "$f" =~ ^(CRITICAL|HIGH) ]]; then
-      has_critical=true
+    if (( $(sev_rank "${f%%|*}") >= threshold )); then
+      fail=true
       break
     fi
   done
 fi
-
-if [[ "$STRICT_MODE" = true && ${#FINDINGS[@]} -gt 0 ]]; then
+if [[ "$fail" = true ]]; then
   exit 1
-elif [[ "$has_critical" = true ]]; then
-  exit 1
-else
-  exit 0
 fi
+exit 0

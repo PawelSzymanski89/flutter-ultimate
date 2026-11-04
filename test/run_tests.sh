@@ -277,6 +277,7 @@ if [[ -n "$PWSH_CMD" ]]; then
   ps_single=$("$PWSH_CMD" -NoProfile -ExecutionPolicy Bypass -File "$AUDIT_PS1" -Target "$SINGLE_DIR" -Json 2>&1)
   set -e
 
+  # shellcheck disable=SC2016
   diff_pos=$(node -e '
     function norm(raw) {
       const arr = typeof raw === "string" ? JSON.parse(raw) : raw;
@@ -312,6 +313,7 @@ if [[ -n "$PWSH_CMD" ]]; then
 
   report_assert "Positive fixture parity: 18 findings with zero discrepancies in (severity, trapId, file, line, message)" $(( diff_pos_exit == 0 ? 1 : 0 )) "$diff_pos"
 
+  # shellcheck disable=SC2016
   diff_neg=$(node -e '
     const b = (process.argv[1] || "").trim();
     const p = (process.argv[2] || "").trim();
@@ -322,6 +324,7 @@ if [[ -n "$PWSH_CMD" ]]; then
   ' "$neg_output" "$ps_neg" 2>&1)
   report_assert "Negative fixture parity: both return strict '[]'" $(( $? == 0 ? 1 : 0 )) "$diff_neg"
 
+  # shellcheck disable=SC2016
   diff_sup=$(node -e '
     const b = (process.argv[1] || "").trim();
     const p = (process.argv[2] || "").trim();
@@ -332,6 +335,7 @@ if [[ -n "$PWSH_CMD" ]]; then
   ' "$sup_output" "$ps_sup" 2>&1)
   report_assert "Suppression fixture parity: both return strict '[]'" $(( $? == 0 ? 1 : 0 )) "$diff_sup"
 
+  # shellcheck disable=SC2016
   diff_single=$(node -e '
     function norm(raw) {
       const arr = typeof raw === "string" ? JSON.parse(raw) : raw;

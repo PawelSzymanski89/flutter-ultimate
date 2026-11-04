@@ -9,27 +9,27 @@ To achieve fluid 60 FPS or 120 FPS (Apple ProMotion, Android high-refresh-rate d
 Missing this budget by even 1 millisecond drops a frame, producing visual stutter known as **jank**.
 
 ```
-â”Śâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
-â”‚                       FLUTTER FRAME LIFECYCLE (8.33ms / 16.67ms)            â”‚
-â”śâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¤
-â”‚                  UI THREAD                     â”‚       RASTER THREAD        â”‚
-â”‚                (Dart VM Core)                  â”‚    (C++ Engine / GPU)      â”‚
-â”śâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”Ľâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¤
-â”‚ 1. VSYNC Pulse (SchedulerBinding)              â”‚                            â”‚
-â”‚ 2. Animate (Tickers, AnimationControllers)     â”‚                            â”‚
-â”‚ 3. Build (Widget -> Element Tree Reconciliationâ”‚                            â”‚
-â”‚ 4. Layout (RenderObject constraint down, size) â”‚                            â”‚
-â”‚ 5. Paint (RenderObject -> PaintingContext)     â”‚                            â”‚
-â”‚ 6. Composite (Layer Tree -> SceneBuilder)      â”‚ 7. Rasterize & Upload      â”‚
-â”‚    Send Scene to Engine â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â–ş   (Metal / Vulkan / GLES)  â”‚
-â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”´â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                       FLUTTER FRAME LIFECYCLE (8.33ms / 16.67ms)            │
+├────────────────────────────────────────────────┬────────────────────────────┤
+│                  UI THREAD                     │       RASTER THREAD        │
+│                (Dart VM Core)                  │    (C++ Engine / GPU)      │
+├────────────────────────────────────────────────┼────────────────────────────┤
+│ 1. VSYNC Pulse (SchedulerBinding)              │                            │
+│ 2. Animate (Tickers, AnimationControllers)     │                            │
+│ 3. Build (Widget -> Element Tree Reconciliation│                            │
+│ 4. Layout (RenderObject constraint down, size) │                            │
+│ 5. Paint (RenderObject -> PaintingContext)     │                            │
+│ 6. Composite (Layer Tree -> SceneBuilder)      │ 7. Rasterize & Upload      │
+│    Send Scene to Engine ───────────────────────►   (Metal / Vulkan / GLES)  │
+└────────────────────────────────────────────────┴────────────────────────────┘
 ```
 
-### The Real Dart Execution Budget: 2ms â€“ 5ms
+### The Real Dart Execution Budget: 2ms – 5ms
 Although the total frame budget is 8.33ms (at 120 Hz), the UI thread cannot consume all 8.33ms for custom Dart code.
-* **Platform/Engine Overhead**: 1.0 â€“ 1.5 ms (VSYNC alignment, message dispatching).
-* **Framework Layout & Paint**: 2.0 â€“ 3.0 ms (RenderObject tree traversal, painting context preparation).
-* **Scene Compositing**: 0.5 â€“ 1.0 ms (Layer assembly, conversion to `ui.Scene`).
+* **Platform/Engine Overhead**: 1.0 – 1.5 ms (VSYNC alignment, message dispatching).
+* **Framework Layout & Paint**: 2.0 – 3.0 ms (RenderObject tree traversal, painting context preparation).
+* **Scene Compositing**: 0.5 – 1.0 ms (Layer assembly, conversion to `ui.Scene`).
 * **Available Budget for Application Dart Execution**: **~2.0 ms to 3.5 ms maximum**.
 
 Any synchronous CPU-bound Dart operation exceeding **2 ms** during an ongoing interaction (such as scrolling, dragging, or route transitions) risks an immediate frame drop.
@@ -53,9 +53,9 @@ Any synchronous CPU-bound Dart operation exceeding **2 ms** during an ongoing in
 
 ---
 
-## The 40 Core Performance Traps (P1 â€“ P40)
+## The 40 Core Performance Traps (P1 – P40)
 
-### Group A: Rebuilds and Widget Tree Management (P1 â€“ P17)
+### Group A: Rebuilds and Widget Tree Management (P1 – P17)
 
 #### P1. Missing `const` Constructors
 * **Severity**: HIGH
@@ -255,7 +255,7 @@ Any synchronous CPU-bound Dart operation exceeding **2 ms** during an ongoing in
 
 ---
 
-### Group B: Lists, Slivers, and Layout Geometry (P18 â€“ P25)
+### Group B: Lists, Slivers, and Layout Geometry (P18 – P25)
 
 #### P18. Unvirtualized Large Collections
 * **Severity**: CRITICAL
@@ -326,7 +326,7 @@ Any synchronous CPU-bound Dart operation exceeding **2 ms** during an ongoing in
 
 ---
 
-### Group C: Painting, Layering, and Rasterization (P26 â€“ P33)
+### Group C: Painting, Layering, and Rasterization (P26 – P33)
 
 #### P26. Animated `Opacity` Widget Triggering Offscreen `saveLayer` Buffers
 * **Severity**: CRITICAL
@@ -399,12 +399,12 @@ Any synchronous CPU-bound Dart operation exceeding **2 ms** during an ongoing in
 
 #### P33. Shader Compilation Jank on Skia Engine
 * **Severity**: HIGH
-* **Mechanism**: On the Skia engine, the first encounter with a specific combination of canvas commands (clipping, gradients, shadows) triggers runtime shader compilation on the GPU driver, stalling the pipeline for 50â€“200ms.
+* **Mechanism**: On the Skia engine, the first encounter with a specific combination of canvas commands (clipping, gradients, shadows) triggers runtime shader compilation on the GPU driver, stalling the pipeline for 50–200ms.
 * **Remediation**: Ensure Impeller is enabled (standard on modern Flutter versions). If legacy Skia targeting is required, bundle an SkSL shader warmup profile via `flutter run --profile --bundle-sksl-path`.
 
 ---
 
-### Group D: Images, Media, and Asset Pipeline (P34 â€“ P38)
+### Group D: Images, Media, and Asset Pipeline (P34 – P38)
 
 #### P34. Decoding High-Resolution Images at Full Geometric Scale
 * **Severity**: CRITICAL
@@ -456,7 +456,7 @@ Any synchronous CPU-bound Dart operation exceeding **2 ms** during an ongoing in
 
 ---
 
-### Group E: Platform Channels, Main Isolate, and IPC (P39 â€“ P40)
+### Group E: Platform Channels, Main Isolate, and IPC (P39 – P40)
 
 #### P39. Heavy Synchronous Computation Blocking the UI Isolate
 * **Severity**: CRITICAL
@@ -470,7 +470,7 @@ Any synchronous CPU-bound Dart operation exceeding **2 ms** during an ongoing in
   2. Thread hop from Dart UI thread to platform main thread.
   3. Execution of native platform handler.
   4. Result serialization and reverse thread hop back to Dart.
-  Executing this 60 times/second adds 1â€“2ms of serialization overhead per tick.
+  Executing this 60 times/second adds 1–2ms of serialization overhead per tick.
 * **Remediation**: Batch multiple updates into a single call, or use `dart:ffi` for synchronous, zero-overhead direct native memory calls.
 
 ---
@@ -481,24 +481,24 @@ Any synchronous CPU-bound Dart operation exceeding **2 ms** during an ongoing in
 The Dart runtime in Flutter operates on an **event-driven, single-threaded model**.
 
 ```
-â”Śâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
-â”‚                    DART ISOLATE EVENT LOOP                  â”‚
-â”śâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¤
-â”‚                                                             â”‚
-â”‚   â”Śâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”   â”‚
-â”‚   â”‚ 1. Microtask Queue (HIGHEST PRIORITY)               â”‚   â”‚
-â”‚   â”‚    - scheduleMicrotask                              â”‚   â”‚
-â”‚   â”‚    - Completed Future continuations                 â”‚   â”‚
-â”‚   â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”   â”‚
-â”‚                              â”‚ Drain completely             â”‚
-â”‚   â”Śâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â–Ľâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”   â”‚
-â”‚   â”‚ 2. Event Queue                                      â”‚   â”‚
-â”‚   â”‚    - I/O Notifications (Network, Disk)              â”‚   â”‚
-â”‚   â”‚    - VSYNC Framework Pulses                         â”‚   â”‚
-â”‚   â”‚    - Timer ticks                                    â”‚   â”‚
-â”‚   â”‚    - Port messages from other Isolates              â”‚   â”‚
-â”‚   â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”   â”‚
-â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+┌─────────────────────────────────────────────────────────────┐
+│                    DART ISOLATE EVENT LOOP                  │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│   ┌─────────────────────────────────────────────────────┐   │
+│   │ 1. Microtask Queue (HIGHEST PRIORITY)               │   │
+│   │    - scheduleMicrotask                              │   │
+│   │    - Completed Future continuations                 │   │
+│   └──────────────────────────┬──────────────────────────┘   │
+│                              │ Drain completely             │
+│   ┌──────────────────────────▼──────────────────────────┐   │
+│   │ 2. Event Queue                                      │   │
+│   │    - I/O Notifications (Network, Disk)              │   │
+│   │    - VSYNC Framework Pulses                         │   │
+│   │    - Timer ticks                                    │   │
+│   │    - Port messages from other Isolates              │   │
+│   └─────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────┘
 ```
 
 #### Why `async` / `await` Does NOT Parallelize Work

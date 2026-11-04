@@ -14,18 +14,18 @@ Modern mobile operating systems feature dynamic software keyboards, hardware cam
 - `MediaQuery.paddingOf(context)`: Describes portions of the screen that are currently obscured. When the keyboard opens, `padding.bottom` collapses to `0.0` while `viewInsets.bottom` expands to match the keyboard height.
 
 ```
-+------------------------------------+  â–˛
-| Status Bar (padding.top)          |  â”‚ Screen Height
-|------------------------------------|  â”‚
-|                                    |  â”‚
-| Content Area                       |  â”‚
-|                                    |  â”‚
-|------------------------------------|  â”‚
-| Software Keyboard                  |  â”‚
-| (viewInsets.bottom expands here)   |  â”‚
-|------------------------------------|  â”‚
-| Gesture Home Pill (padding.bottom) |  â”‚
-+------------------------------------+  â–Ľ
++------------------------------------+  ▲
+| Status Bar (padding.top)          |  │ Screen Height
+|------------------------------------|  │
+|                                    |  │
+| Content Area                       |  │
+|                                    |  │
+|------------------------------------|  │
+| Software Keyboard                  |  │
+| (viewInsets.bottom expands here)   |  │
+|------------------------------------|  │
+| Gesture Home Pill (padding.bottom) |  │
++------------------------------------+  ▼
 ```
 
 ### 1.2 The `SafeArea` Placement Invariant

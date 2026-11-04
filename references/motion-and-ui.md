@@ -85,11 +85,6 @@ class _SpringPullCardState extends State<SpringPullCard>
     super.initState();
     _dragAlignment = Alignment.center;
     _controller = AnimationController(vsync: this);
-    _controller.addListener(() {
-      setState(() {
-        _dragAlignment = _animation.value;
-      });
-    });
   }
 
   @override
@@ -120,7 +115,12 @@ class _SpringPullCardState extends State<SpringPullCard>
   Widget build(BuildContext context) {
     final size = MediaQuery.sizeOf(context);
     return GestureDetector(
-      onPanDown: (_) => _controller.stop(),
+      onPanDown: (_) {
+        if (_controller.isAnimating) {
+          _dragAlignment = _animation.value;
+        }
+        _controller.stop();
+      },
       onPanUpdate: (details) {
         setState(() {
           _dragAlignment += Alignment(
@@ -132,9 +132,17 @@ class _SpringPullCardState extends State<SpringPullCard>
       onPanEnd: (details) {
         _runSpringAnimation(details.velocity.pixelsPerSecond, size);
       },
-      child: Align(
-        alignment: _dragAlignment,
-        child: widget.child,
+      child: RepaintBoundary(
+        child: AnimatedBuilder(
+          animation: _controller,
+          builder: (context, child) {
+            return Align(
+              alignment: _controller.isAnimating ? _animation.value : _dragAlignment,
+              child: child,
+            );
+          },
+          child: widget.child,
+        ),
       ),
     );
   }
@@ -387,11 +395,14 @@ Widget buildHeroCard({
       );
     },
     placeholderBuilder: (context, heroSize, child) {
-      // Prevent layout shift during flight
+      // Prevent layout shift during flight without offscreen saveLayer
       return SizedBox(
         width: heroSize.width,
         height: heroSize.height,
-        child: Opacity(opacity: 0.15, child: child),
+        child: FadeTransition(
+          opacity: const AlwaysStoppedAnimation(0.15),
+          child: child,
+        ),
       );
     },
     child: child,

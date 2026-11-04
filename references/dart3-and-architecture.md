@@ -150,6 +150,45 @@ Dart 3 class modifiers control how classes can be inherited, implemented, or ins
 | `base` | Anywhere | Library only | No | Yes | No |
 | `interface` | Library only | Anywhere | No | Yes | No |
 
+### 1.5 Zero-Cost Domain Primitives (`extension type`)
+
+Introduced in Dart 3.3, `extension type` declarations provide compile-time type safety over primitive representations with **zero runtime memory allocation or object indirection overhead**. The compiler treats them as distinct domain types during compilation; at runtime, they compile directly down to their underlying representation (`String`, `int`, etc.), eliminating heap churn and GC pauses.
+
+Use `extension type` to eradicate **Primitive Obsession** across entities, domain models, and repository contracts:
+
+```dart
+// Compile-time safe domain IDs wrapping primitive String with zero heap cost
+extension type const UserId(String value) {
+  bool get isValid => value.isNotEmpty && value.length >= 8;
+}
+
+extension type const OrderId(String value) {}
+
+// Strong compile-time contract: arguments cannot be swapped accidentally
+void processOrder(UserId user, OrderId order) {
+  print('Processing ${order.value} for user ${user.value}');
+}
+
+void executionDemo() {
+  final user = UserId('usr_123456');
+  final order = OrderId('ord_987654');
+
+  processOrder(user, order); // Compiles cleanly
+
+  // COMPILE ERROR: The argument type 'OrderId' cannot be assigned to 'UserId'
+  // processOrder(order, user);
+}
+
+// Fixed-precision currency representation without float rounding errors or DTO overhead
+extension type const Cents(int value) {
+  Cents operator +(Cents other) => Cents(value + other.value);
+  Cents operator -(Cents other) => Cents(value - other.value);
+  bool operator <(Cents other) => value < other.value;
+
+  double get inDollars => value / 100.0;
+}
+```
+
 ---
 
 ## 2. The 4-Tier State Management Ladder
@@ -158,11 +197,11 @@ The fundamental law of Flutter state architecture is: **Use the lowest tier on t
 
 ```
        [Tier 4: Global Reactive Bus (Riverpod / BLoC)]
-                           â–˛
+                           ▲
        [Tier 3: Flow / Screen Store (ChangeNotifier)]
-                           â–˛
+                           ▲
        [Tier 2: Targeted Rebuilding (ValueNotifier / ListenableBuilder)]
-                           â–˛
+                           ▲
        [Tier 1: Ephemeral Leaf State (setState in StatefulWidget)]
 ```
 
@@ -341,11 +380,11 @@ To ensure testability, maintainability, and resilience against external API drif
 
 ```
 [Presentation Layer] (Widgets, ViewModels, Blocs, Notifiers)
-         â”‚  Calls UseCases / Reads ViewStates
-         â–Ľ
+         │  Calls UseCases / Reads ViewStates
+         ▼
 [Domain Layer]       (Entities, UseCases, Repository Contracts) [PURE DART - NO FLUTTER]
-         â–˛
-         â”‚  Implements Contracts / Maps DTOs
+         ▲
+         │  Implements Contracts / Maps DTOs
 [Data Layer]         (DataSources, DTOs, Repository Implementations, Secure Cache)
 ```
 

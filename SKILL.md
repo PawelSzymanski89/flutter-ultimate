@@ -48,7 +48,7 @@ Consult deep reference guides for concrete catalogs, syntax blueprints, and edge
 | :--- | :--- | :--- |
 | **Performance (60/120 FPS)** | `references/performance-and-rendering.md` | Traps P1-P40: Rebuild loops, `const` constructor propagation, `RepaintBoundary`, shader jank, layout thrashing, image resizing, and `CustomScrollView` / sliver virtualization. |
 | **Memory & Lifecycle** | `references/memory-and-lifecycle.md` | Traps W1-W20 & K1-K14: Resource disposal pairing, stream cancellation, BuildContext async gap guards, mounted checks, and `AppLifecycleListener` background state handling. |
-| **Motion, UI & Slivers** | `references/motion-and-ui.md` | Physics simulations (`Curves.easeOutCubic`), `AnimatedBuilder` optimization, sliver architecture, `Hero` shuttle builders, design tokens, and haptic feedback. |
+| **Motion, UI & Slivers** | `references/motion-and-ui.md` | Physics simulations (`SpringSimulation`, `Curves.easeOutCubic`), `AnimatedBuilder` isolation, sliver virtualization, `Hero` shuttle builders, design tokens, and haptic feedback. |
 | **Dart 3 & Architecture** | `references/dart3-and-architecture.md` | 4-tier state selection ladder, Dart 3 sealed class models, records, pattern matching, immutable data pipelines, and Clean Architecture boundaries. |
 | **Production Stack** | `references/production-stack.md` | `go_router` (StatefulShellRoute, auth guards), `flutter_bloc` (transformers, boundaries), `flutter_secure_storage` (hardware keystores), and `hive` (encrypted & LazyBox bounds). |
 | **Platform, Privacy & Security** | `references/platform-and-security.md` | RODO/GDPR native tracking toggles in AndroidManifest.xml and Info.plist, keyboard insets, SafeArea layout rules, and biometric storage. |
@@ -67,10 +67,10 @@ Activate this mode when designing a new feature, screen, or domain module prior 
        v
 +--------------------------------------------------------------+
 | 1. Select State Tier from 4-Tier Ladder                      |
-|    Tier 1: Ephemeral State -> StatefulWidget / ValueNotifier |
-|    Tier 2: Scoped State    -> Provider / InheritedNotifier   |
-|    Tier 3: Domain State    -> Riverpod (NotifierProvider)    |
-|    Tier 4: Enterprise Flow -> BLoC / Cubit                   |
+|    Tier 1: Ephemeral Leaf  -> setState (StatefulWidget)      |
+|    Tier 2: Targeted Rebuild -> ValueNotifier / Listenable    |
+|    Tier 3: Scoped Flow     -> ChangeNotifier / Scoped State  |
+|    Tier 4: Enterprise Bus  -> BLoC / Riverpod                |
 +------------------------------+-------------------------------+
                                |
                                v
@@ -100,22 +100,22 @@ Activate this mode when designing a new feature, screen, or domain module prior 
 
 ### Architectural Step-by-Step
 1. **State Tier Selection**:
-   - Consult `references/dart3-and-architecture.md` to pick the simplest sufficient tier.
+   - Consult `references/dart3-and-architecture.md` to pick the simplest sufficient tier on the 4-Tier Ladder (Tier 1: Leaf `setState` -> Tier 2: `ValueNotifier` -> Tier 3: Scoped `ChangeNotifier` -> Tier 4: `BLoC` / `Riverpod`).
    - For BLoC or complex state flows, consult `references/production-stack.md` for `bloc_concurrency` event transformers (`restartable`, `droppable`, `sequential`).
-   - Default to Tier 1 for isolated widget state (toggle, text input, local animation).
-   - Use Tier 3 (Riverpod) or Tier 4 (BLoC) for complex multi-screen or async domain logic.
+   - Default to Tier 1 or Tier 2 for isolated widget state (toggle, text input, local animation).
+   - Reserve Tier 4 (`BLoC` / `Riverpod`) for complex multi-screen or async domain workflows.
 2. **Navigation & Persistence Architecture**:
    - Consult `references/production-stack.md` to architect declarative navigation via `GoRouter` using `StatefulShellRoute.indexedStack` for bottom tabs.
    - Protect sensitive secrets with `flutter_secure_storage` (hardware Keystore/Keychain).
    - Use encrypted `Hive.openLazyBox` for offline caches exceeding 500 records to prevent OOM.
-2. **Model Definition with Sealed Classes**:
+3. **Model Definition with Sealed Classes**:
    - Define UI states as `sealed class [Feature]State` with immutable subclasses.
    - Define domain events as `sealed class [Feature]Event`.
    - Never use nullable strings or boolean flags to represent screen loading/error states.
-3. **Render Boundary Architecture**:
+4. **Render Boundary Architecture**:
    - Identify dynamic, frequently redrawn subtrees (e.g., custom timers, canvas drawing, complex animations). Mark them for `RepaintBoundary` isolation.
    - Enforce sliver virtualization (`SliverList`, `SliverGrid`) for lists over 10 items.
-4. **Lifecycle Blueprinting**:
+5. **Lifecycle Blueprinting**:
    - List every controller, stream, and listener required. Map initialization to `initState` and teardown to `dispose`.
 
 ---

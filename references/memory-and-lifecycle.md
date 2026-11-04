@@ -2,24 +2,24 @@
 
 ## Executive Overview: The Strict Disposal Pairing Rule
 
-In the Flutter and Dart runtime environment, garbage collection (GC) does not guarantee the release of native resources, hardware handles, or framework registrations. A memory leak in Flutter is rarely unreferenced memory adrift in the heap; rather, it is almost exclusively an **unwanted retention path**. A defunct object (such as a popped `State` instance) is kept alive because a persistent GC rootâ€”such as the `SchedulerBinding`, `FocusManager`, an active `Isolate` event loop, or a global serviceâ€”retains a strong reference to it or to a closure capturing its `this` reference.
+In the Flutter and Dart runtime environment, garbage collection (GC) does not guarantee the release of native resources, hardware handles, or framework registrations. A memory leak in Flutter is rarely unreferenced memory adrift in the heap; rather, it is almost exclusively an **unwanted retention path**. A defunct object (such as a popped `State` instance) is kept alive because a persistent GC root—such as the `SchedulerBinding`, `FocusManager`, an active `Isolate` event loop, or a global service—retains a strong reference to it or to a closure capturing its `this` reference.
 
 The **Strict Disposal Pairing Rule** is the foundational invariant of Flutter memory management:
 
 > **Every stateful primitive, controller, subscription, hardware session, or native graphical handle initialized within a lifecycle scope MUST possess an exact, deterministic teardown invocation within the corresponding termination callback.**
 
 ```
-â”Śâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
-â”‚                   LIFECYCLE PAIRING                    â”‚
-â”śâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¤
-â”‚ Allocation Callback      â”‚ Mandatory Teardown Callback â”‚
-â”śâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”Ľâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¤
-â”‚ initState()              â”‚ dispose()                   â”‚
-â”‚ didChangeDependencies()  â”‚ dispose() / deactivate()    â”‚
-â”‚ Service constructor      â”‚ Service.dispose() / close() â”‚
-â”‚ Provider create:         â”‚ Provider dispose:           â”‚
-â”‚ AppLifecycle: resumed    â”‚ AppLifecycle: paused        â”‚
-â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”´â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+┌────────────────────────────────────────────────────────┐
+│                   LIFECYCLE PAIRING                    │
+├──────────────────────────┬─────────────────────────────┤
+│ Allocation Callback      │ Mandatory Teardown Callback │
+├──────────────────────────┼─────────────────────────────┤
+│ initState()              │ dispose()                   │
+│ didChangeDependencies()  │ dispose() / deactivate()    │
+│ Service constructor      │ Service.dispose() / close() │
+│ Provider create:         │ Provider dispose:           │
+│ AppLifecycle: resumed    │ AppLifecycle: paused        │
+└──────────────────────────┴─────────────────────────────┘
 ```
 
 ---
@@ -53,7 +53,7 @@ The **Strict Disposal Pairing Rule** is the foundational invariant of Flutter me
 
 ---
 
-## 2. The 20 Critical Memory Leaks (W1 â€“ W20)
+## 2. The 20 Critical Memory Leaks (W1 – W20)
 
 ### W1. `AnimationController` Without `dispose()`
 * **Severity**: CRITICAL
@@ -581,32 +581,32 @@ ChangeNotifierProvider<CartModel>(
 
 ---
 
-## 3. The Context & Mounted Protocol (K1 â€“ K14)
+## 3. The Context & Mounted Protocol (K1 – K14)
 
 ### Context & Element Anatomy
 A `BuildContext` is not a data structure; it is an **`Element`** in the element tree. It defines the exact coordinate location of a widget in the hierarchy.
 
 ```
        Element Tree Lifecycle
-â”Śâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
-â”‚ 1. Initialized (createState)        â”‚
-â”‚    mounted == false, context == nullâ”‚
-â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
-                   â”‚
-â”Śâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â–Ľâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
-â”‚ 2. Active (mount / initState)       â”‚
-â”‚    mounted == true, context valid   â”‚
-â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
-                   â”‚
-â”Śâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â–Ľâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
-â”‚ 3. Inactive (deactivate)            â”‚
-â”‚    mounted == true, lookup unsafe   â”‚
-â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
-                   â”‚
-â”Śâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â–Ľâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
-â”‚ 4. Defunct (unmount / dispose)      â”‚
-â”‚    mounted == false, context throws â”‚
-â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+┌─────────────────────────────────────┐
+│ 1. Initialized (createState)        │
+│    mounted == false, context == null│
+└──────────────────┬──────────────────┘
+                   │
+┌──────────────────▼──────────────────┐
+│ 2. Active (mount / initState)       │
+│    mounted == true, context valid   │
+└──────────────────┬──────────────────┘
+                   │
+┌──────────────────▼──────────────────┐
+│ 3. Inactive (deactivate)            │
+│    mounted == true, lookup unsafe   │
+└──────────────────┬──────────────────┘
+                   │
+┌──────────────────▼──────────────────┐
+│ 4. Defunct (unmount / dispose)      │
+│    mounted == false, context throws │
+└─────────────────────────────────────┘
 ```
 
 * **`State.mounted`**: Evaluates `_element != null`. Belongs strictly to the `State` class.
@@ -640,7 +640,7 @@ Future<void> _onSubmit() async {
 
 ---
 
-### Master Catalog of Context Traps (K1 â€“ K14)
+### Master Catalog of Context Traps (K1 – K14)
 
 #### K1. `setState()` Called After Async Gap Without `mounted` Check
 * **Compiler / Diagnostic**: `setState() called after dispose()`
@@ -846,19 +846,19 @@ setState(() => _data = data);
 ## 4. Quick Context Diagnostic Reference
 
 ```
-â”Śâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
-â”‚ Error Diagnostic Pattern                                     â”‚ Trap ID  â”‚ Prescribed Architectural Remediation                   â”‚
-â”śâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”Ľâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”Ľâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¤
-â”‚ setState() called after dispose()                            â”‚ K1, K12  â”‚ Cancel timers/subscriptions in dispose(); guard gap.   â”‚
-â”‚ use_build_context_synchronously                              â”‚ K2, K4   â”‚ Pre-cache Navigator/Theme or check context.mounted.   â”‚
-â”‚ Scaffold.of() called with context not containing Scaffold    â”‚ K6       â”‚ Insert Builder widget or use ScaffoldMessenger.        â”‚
-â”‚ ProviderNotFoundException in dialog or bottom sheet          â”‚ K7       â”‚ Pass instance via Provider.value() into builder.       â”‚
-â”‚ dependOnInheritedWidget... called before initState completed â”‚ K8       â”‚ Relocate lookup to didChangeDependencies().            â”‚
-â”‚ setState() or markNeedsBuild() called during build           â”‚ K9       â”‚ Defer via addPostFrameCallback or user action.         â”‚
-â”‚ Looking up a deactivated widget's ancestor is unsafe         â”‚ K10, K11 â”‚ Store ancestor reference prior to disposal.            â”‚
-â”‚ Illegal argument in isolate message: object is unsendable    â”‚ K13      â”‚ Extract primitive/DOR data before sending to isolate.  â”‚
-â”‚ setState() callback argument returned a Future               â”‚ K14      â”‚ Await payload outside setState(); mutate synchronously.â”‚
-â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”´â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”´â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+┌──────────────────────────────────────────────────────────────┬──────────┬────────────────────────────────────────────────────────┐
+│ Error Diagnostic Pattern                                     │ Trap ID  │ Prescribed Architectural Remediation                   │
+├──────────────────────────────────────────────────────────────┼──────────┼────────────────────────────────────────────────────────┤
+│ setState() called after dispose()                            │ K1, K12  │ Cancel timers/subscriptions in dispose(); guard gap.   │
+│ use_build_context_synchronously                              │ K2, K4   │ Pre-cache Navigator/Theme or check context.mounted.   │
+│ Scaffold.of() called with context not containing Scaffold    │ K6       │ Insert Builder widget or use ScaffoldMessenger.        │
+│ ProviderNotFoundException in dialog or bottom sheet          │ K7       │ Pass instance via Provider.value() into builder.       │
+│ dependOnInheritedWidget... called before initState completed │ K8       │ Relocate lookup to didChangeDependencies().            │
+│ setState() or markNeedsBuild() called during build           │ K9       │ Defer via addPostFrameCallback or user action.         │
+│ Looking up a deactivated widget's ancestor is unsafe         │ K10, K11 │ Store ancestor reference prior to disposal.            │
+│ Illegal argument in isolate message: object is unsendable    │ K13      │ Extract primitive/DOR data before sending to isolate.  │
+│ setState() callback argument returned a Future               │ K14      │ Await payload outside setState(); mutate synchronously.│
+└──────────────────────────────────────────────────────────────┴──────────┴────────────────────────────────────────────────────────┘
 ```
 
 ---

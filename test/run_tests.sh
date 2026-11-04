@@ -23,12 +23,12 @@ report_assert() {
   local details="$3"
 
   if [[ "$condition" -eq 1 ]]; then
-    printf "  ${GREEN}[PASS]${NC} %s\n" "$name"
+    printf '  %b[PASS]%b %s\n' "$GREEN" "$NC" "$name"
     PASSED=$((PASSED + 1))
   else
-    printf "  ${RED}[FAIL]${NC} %s\n" "$name"
+    printf '  %b[FAIL]%b %s\n' "$RED" "$NC" "$name"
     if [[ -n "$details" ]]; then
-      printf "         ${YELLOW}%s${NC}\n" "$details"
+      printf '         %b%s%b\n' "$YELLOW" "$details" "$NC"
     fi
     FAILED=$((FAILED + 1))
   fi
@@ -40,7 +40,7 @@ echo " Project: $PROJECT_ROOT"
 echo "=================================================="
 
 # 1. Validate SKILL.md & Claude Code Plugin Architecture
-printf "\n${CYAN}[1/5] Validating SKILL.md & Plugin Architecture...${NC}\n"
+printf '\n%b[1/6] Validating SKILL.md & Plugin Architecture...%b\n' "$CYAN" "$NC"
 SKILL_PATH="$PROJECT_ROOT/SKILL.md"
 
 if [[ ! -f "$SKILL_PATH" ]]; then
@@ -98,13 +98,32 @@ PLUGIN_SKILL="$PROJECT_ROOT/skills/flutter-ultimate/SKILL.md"
 CMD_AUDIT="$PROJECT_ROOT/commands/flutter-audit.md"
 CMD_REVIEW="$PROJECT_ROOT/commands/flutter-review.md"
 
-[[ -f "$PLUGIN_MANIFEST" ]] && report_assert "plugin.json exists" 1 "" || report_assert "plugin.json exists" 0 ""
-[[ -f "$PLUGIN_SKILL" ]] && report_assert "skills/flutter-ultimate/SKILL.md exists" 1 "" || report_assert "skills/flutter-ultimate/SKILL.md exists" 0 ""
-[[ -f "$CMD_AUDIT" ]] && report_assert "commands/flutter-audit.md exists" 1 "" || report_assert "commands/flutter-audit.md exists" 0 ""
-[[ -f "$CMD_REVIEW" ]] && report_assert "commands/flutter-review.md exists" 1 "" || report_assert "commands/flutter-review.md exists" 0 ""
+if [[ -f "$PLUGIN_MANIFEST" ]]; then
+  report_assert "plugin.json exists" 1 ""
+else
+  report_assert "plugin.json exists" 0 "Missing plugin.json"
+fi
+
+if [[ -f "$PLUGIN_SKILL" ]]; then
+  report_assert "skills/flutter-ultimate/SKILL.md exists" 1 ""
+else
+  report_assert "skills/flutter-ultimate/SKILL.md exists" 0 "Missing skills/flutter-ultimate/SKILL.md"
+fi
+
+if [[ -f "$CMD_AUDIT" ]]; then
+  report_assert "commands/flutter-audit.md exists" 1 ""
+else
+  report_assert "commands/flutter-audit.md exists" 0 "Missing commands/flutter-audit.md"
+fi
+
+if [[ -f "$CMD_REVIEW" ]]; then
+  report_assert "commands/flutter-review.md exists" 1 ""
+else
+  report_assert "commands/flutter-review.md exists" 0 "Missing commands/flutter-review.md"
+fi
 
 # 2. Test CLI Contract & Error Handling
-printf "\n${CYAN}[2/5] Testing CLI Contract & Error Handling...${NC}\n"
+printf '\n%b[2/6] Testing CLI Contract & Error Handling...%b\n' "$CYAN" "$NC"
 AUDIT_SH="$PROJECT_ROOT/scripts/audit-flutter.sh"
 
 set +e
@@ -116,12 +135,12 @@ non_out=$("$AUDIT_SH" --target "$PROJECT_ROOT/non_existent_directory" 2>&1)
 non_exit=$?
 set -e
 
-report_assert "Unknown CLI option exits with code 2" $(( unk_exit == 2 ? 1 : 0 )) "Exit: $unk_exit"
-report_assert "Missing --target argument exits with code 2" $(( mis_exit == 2 ? 1 : 0 )) "Exit: $mis_exit"
-report_assert "Non-existent target directory exits with code 2" $(( non_exit == 2 ? 1 : 0 )) "Exit: $non_exit"
+report_assert "Unknown CLI option exits with code 2" $(( unk_exit == 2 ? 1 : 0 )) "$unk_out"
+report_assert "Missing --target argument exits with code 2" $(( mis_exit == 2 ? 1 : 0 )) "$mis_out"
+report_assert "Non-existent target directory exits with code 2" $(( non_exit == 2 ? 1 : 0 )) "$non_out"
 
 # 3. Test audit-flutter.sh on Positive Fixture
-printf "\n${CYAN}[3/5] Testing audit-flutter.sh Positive Fixture...${NC}\n"
+printf '\n%b[3/6] Testing audit-flutter.sh Positive Fixture...%b\n' "$CYAN" "$NC"
 POS_DIR="$PROJECT_ROOT/test/fixtures/positive"
 
 set +e
@@ -150,7 +169,7 @@ for trap_id in "${expected_traps[@]}"; do
 done
 
 # 4. Test Single-Finding Contract & Strict Mode
-printf "\n${CYAN}[4/6] Testing Single-Finding JSON Array Contract & Strict Mode...${NC}\n"
+printf '\n%b[4/6] Testing Single-Finding JSON Array Contract & Strict Mode...%b\n' "$CYAN" "$NC"
 SINGLE_DIR="$PROJECT_ROOT/test/fixtures/single"
 
 set +e
@@ -161,7 +180,7 @@ single_strict_exit=$?
 set -e
 
 report_assert "Single finding (MEDIUM) without --strict exits with code 0" $(( single_exit == 0 ? 1 : 0 )) "Exit: $single_exit"
-report_assert "Single finding with --strict exits with code 1" $(( single_strict_exit == 1 ? 1 : 0 )) "Exit: $single_strict_exit"
+report_assert "Single finding with --strict exits with code 1" $(( single_strict_exit == 1 ? 1 : 0 )) "$single_strict_output"
 
 # Validate that single finding outputs a valid JSON array enclosing an object
 is_json_array=0
@@ -172,7 +191,7 @@ esac
 report_assert "Single finding outputs valid JSON array [{...}]" "$is_json_array" "Output: $single_output"
 
 # 5. Test Negative & Suppression Fixtures
-printf "\n${CYAN}[5/6] Testing Negative & Suppression Fixtures...${NC}\n"
+printf '\n%b[5/6] Testing Negative & Suppression Fixtures...%b\n' "$CYAN" "$NC"
 NEG_DIR="$PROJECT_ROOT/test/fixtures/negative"
 
 set +e
@@ -197,7 +216,7 @@ is_sup_empty=0
 report_assert "Suppression fixture returns strict '[]' (not empty stdout)" "$is_sup_empty" "Output: $sup_output"
 
 # 6. Test Bash <-> PowerShell Cross-Platform Parity
-printf "\n${CYAN}[6/6] Testing Bash <-> PowerShell Cross-Platform Parity...${NC}\n"
+printf '\n%b[6/6] Testing Bash <-> PowerShell Cross-Platform Parity...%b\n' "$CYAN" "$NC"
 PWSH_CMD=""
 if command -v pwsh >/dev/null 2>&1; then
   PWSH_CMD="pwsh"
@@ -216,17 +235,17 @@ if [[ -n "$PWSH_CMD" ]]; then
 
   report_assert "Both scanners report identical findings count (18)" $(( ps_count == bash_count && bash_count == 18 ? 1 : 0 )) "PS: $ps_count, Bash: $bash_count"
 else
-  printf "  ${YELLOW}[SKIP]${NC} PowerShell not found; skipping cross-platform parity assertion\n"
+  printf '  %b[SKIP]%b PowerShell not found; skipping cross-platform parity assertion\n' "$YELLOW" "$NC"
 fi
 
 # Summary
 echo "=================================================="
 if (( FAILED == 0 )); then
-  printf "${GREEN} Test Summary: %d Passed, %d Failed${NC}\n" "$PASSED" "$FAILED"
+  printf '%b Test Summary: %d Passed, %d Failed%b\n' "$GREEN" "$PASSED" "$FAILED" "$NC"
   echo "=================================================="
   exit 0
 else
-  printf "${RED} Test Summary: %d Passed, %d Failed${NC}\n" "$PASSED" "$FAILED"
+  printf '%b Test Summary: %d Passed, %d Failed%b\n' "$RED" "$PASSED" "$FAILED" "$NC"
   echo "=================================================="
   exit 1
 fi

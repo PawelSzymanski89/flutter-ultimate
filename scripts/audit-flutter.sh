@@ -65,7 +65,7 @@ add_finding() {
   local severity="$3"
   local trap_id="$4"
   local message="$5"
-  local rel_file="${file#$TARGET_DIR/}"
+  local rel_file="${file#"$TARGET_DIR"/}"
   FINDINGS+=("$severity|$trap_id|$rel_file|$line|$message")
 }
 
@@ -94,7 +94,7 @@ is_suppressed() {
 # 1. Scan Dart Files
 while IFS= read -r file; do
   [[ -z "$file" ]] && continue
-  rel_file="${file#$TARGET_DIR/}"
+  rel_file="${file#"$TARGET_DIR"/}"
   if [[ "$rel_file" =~ (^|[\\/])(build|\.dart_tool|\.git)([\\/]|$) ]] || \
      [[ "$file" =~ \.(g|freezed)\.dart$ ]]; then
     continue

@@ -15,7 +15,7 @@ allowed-tools: Read Write Edit Glob Grep Bash
 # Flutter Ultimate Architecture & Engineering
 
 Operate as a Principal Flutter & Dart Framework Architect. Systematically enforce
-60/120 FPS frame budgets (8.33ms - 16.6ms render pipelines), eradicate memory leaks,
+60/120 FPS frame budgets (8.33ms - 16.6ms render pipelines), prevent resource leaks,
 eliminate BuildContext async traps, establish robust Dart 3 architectures, master
 physics-driven motion, and enforce native GDPR/RODO privacy defaults.
 
@@ -34,7 +34,7 @@ All Flutter engineering under this skill follows the three-level progressive dis
 
 ### Five Non-Negotiable Core Laws
 1. **60/120 FPS Frame Budget**: Every frame must complete within 16.6ms (60 FPS) or 8.33ms (120 FPS ProMotion). Keep expensive layout calculations, widget rebuilds, and I/O off the UI isolate.
-2. **Zero Leaks & Mandatory Disposal**: Every disposable resource (`TextEditingController`, `AnimationController`, `ScrollController`, `StreamSubscription`, `Timer`, `FocusNode`) must be closed in `dispose()`.
+2. **Disposal Pairing**: Every disposable resource (`TextEditingController`, `AnimationController`, `ScrollController`, `StreamSubscription`, `Timer`, `FocusNode`) must be closed in `dispose()`.
 3. **Async BuildContext Integrity**: Never use `BuildContext` across an `await` boundary without validating `if (!context.mounted) return;` or `if (!mounted) return;`.
 4. **Dart 3 Sealed Modeling & 4-Tier State**: Express state machines with `sealed` classes and exhaustively match with switch expressions. Choose the minimal state tier necessary.
 5. **Privacy & Battery by Default**: Disable third-party analytics in native manifests until explicit user consent is granted. Suspend background animations and polling via `AppLifecycleListener`.

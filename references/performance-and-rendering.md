@@ -32,11 +32,11 @@ Although the total frame budget is 8.33ms (at 120 Hz), the UI thread cannot cons
 * **Scene Compositing**: 0.5 – 1.0 ms (Layer assembly, conversion to `ui.Scene`).
 * **Available Budget for Application Dart Execution**: **~2.0 ms to 3.5 ms maximum**.
 
-Any synchronous CPU-bound Dart operation exceeding **2 ms** during an ongoing interaction (such as scrolling, dragging, or route transitions) risks an immediate frame drop.
+As a rough signal, a synchronous CPU-bound Dart operation above **2 ms** during an ongoing interaction (such as scrolling, dragging, or route transitions) risks an immediate frame drop.
 
 ### Engine Architecture: Impeller vs. Skia
 * **Legacy Engine (Skia)**: Compiles shaders just-in-time (JIT) on the GPU driver thread during the first draw call. This produces notorious **Shader Compilation Jank** when an un-warmed shader combination is encountered during an animation.
-* **Modern Engine (Impeller)**: Flutter's next-generation rendering engine (default on iOS since 3.10, default on Android modern Vulkan/GLES). Impeller compiles all shaders Ahead-of-Time (AOT) during engine build into a deterministic pipeline cache, completely eliminating runtime shader compilation jank. It uses a modern tessellation and clipping model that makes simple clipping and elevation substantially cheaper than on Skia.
+* **Impeller**: the only engine on iOS, default on Android API 29+ (OpenGL fallback below that or without Vulkan), default on macOS / Linux / Windows since 3.47; the web still uses Skia. Impeller precompiles its shaders, which removes the shader-compilation stalls Skia showed on first use of a drawing combination. It does not remove layout cost, overdraw, raster work on large layers or GPU saturation; see `references/impeller-and-gpu.md` for how to tell those apart.
 
 ### Profiling Methodology & Tooling
 1. **Strictly `--profile` Mode**: Never profile in debug mode. Debug mode uses the Dart JIT compiler, asserts, and detailed instrumentation, multiplying execution time by 2x to 10x. Only `--profile` runs AOT-compiled machine code with representative tree-shaking.
@@ -351,11 +351,11 @@ Any synchronous CPU-bound Dart operation exceeding **2 ms** during an ongoing in
 #### P28. Indiscriminate `BoxShadow` and `elevation` in Virtualized Rows
 * **Severity**: MEDIUM
 * **Mechanism**: Gaussian blurs required for soft box shadows are computationally expensive for GPU fragment shaders. Rendering 30 shadowed cards simultaneously during a fast scroll forces 30 separate multi-pass GPU blur operations per frame.
-* **Remediation**: Isolate complex shadowed cards using `RepaintBoundary` to cache the rasterized texture, or use 9-patch pre-rendered shadow assets.
+* **Remediation**: Reduce the shadow (smaller blur radius, fewer shadowed items on screen) or use pre-rendered 9-patch shadow assets. A `RepaintBoundary` isolates repaint propagation; whether the engine caches the layer is conditional, so measure before adding one.
 
 #### P29. Unbounded `BackdropFilter` Over Large Viewports
-* **Severity**: CRITICAL
-* **Mechanism**: `BackdropFilter` reads the existing GPU framebuffer back into a texture, runs a multi-pass Gaussian blur shader across the defined geometry, and writes it back. The cost scales directly with surface area. In a scrolling list, this forces full-screen GPU texture readbacks on every frame.
+* **Severity**: HIGH (Trade-off: confirm with a raster-thread trace before changing the design)
+* **Mechanism**: `BackdropFilter` reads the already rendered content behind it into a texture, runs the blur over that area and composites it back. The cost grows with the filtered area and with how often it repaints. Inside a scrolling list it repaints on every scroll frame.
 * **Remediation**: Strictly bound the filter area using an explicit `ClipRect`. Never embed `BackdropFilter` inside scrolling list items.
 
 #### P30. Real-Time Dynamic Filtering with `ImageFiltered`, `ColorFiltered`, and `ShaderMask`
@@ -456,11 +456,27 @@ Any synchronous CPU-bound Dart operation exceeding **2 ms** during an ongoing in
 
 ---
 
+### Release size and asset budget (measure, then decide)
+
+P34–P38 are about decoded memory at runtime. Binary size is a separate question with its own tool; the two are confused when someone "optimises" by converting assets without measuring either.
+
+- **Measure a release artifact, never a debug build.** `flutter build apk|appbundle|ios|macos|linux|windows --analyze-size` prints a per-category summary (Dart AOT by package, native libraries, assets) and writes a `*-code-size-analysis_*.json` file. Open it in the DevTools App Size tool; load two files to diff releases. `--analyze-size` cannot be combined with `--split-debug-info` (Rule from the CLI).
+- **Store download size differs from the artifact.** Google Play reports download size for an arm64-v8a XXXHDPI device after it filters densities and ABIs; App Store Connect reports the thinned size after upload. For iOS, the App Thinning Size Report from an exported archive is the number to quote.
+- **Known reducers**, in the order to try: `--split-debug-info` (plus `--obfuscate` where acceptable) for the Dart AOT part; remove unused assets and fonts; compress PNG/JPEG; icon-font tree shaking is on by default for release builds (`--no-tree-shake-icons` turns it off). There is no `tree-shake-icons` key in `pubspec.yaml`; a missing key is not a finding.
+- **Asset inventory**: list the largest files under `assets/` and bundled fonts with their sizes and where they are referenced. A plain text search for the asset name misses generated references and dynamic paths, so "unused" is a hypothesis to confirm, not a conclusion.
+- **Format choice is a content decision.** PNG for flat art with transparency, JPEG for photos, WebP where the saving is measured and the platforms are covered, vector for icons. Do not mandate one format for every asset.
+- **Budgets are project-specific.** Record the project's own baseline (artifact size, download size, decoded image memory on the slowest device) and report deltas against it. Do not import a universal number from another project.
+- **Decoded memory, separately**: `cacheWidth` / `cacheHeight` and density variants (P34, P35) are about RAM, not bytes on disk. A 40 KB PNG can still decode to 48 MB.
+
+Sources: [Measuring app size](https://docs.flutter.dev/perf/app-size), [DevTools App Size](https://docs.flutter.dev/tools/devtools/app-size).
+
+---
+
 ### Group E: Platform Channels, Main Isolate, and IPC (P39 – P40)
 
 #### P39. Heavy Synchronous Computation Blocking the UI Isolate
 * **Severity**: CRITICAL
-* **Mechanism**: Synchronous JSON decoding (`jsonDecode` on payloads >50KB), encryption/hashing, image transformations, or database serialization on the main isolate blocks the Dart event loop. No VSYNC tasks can execute, resulting in massive frame drops.
+* **Mechanism**: Synchronous JSON decoding of large payloads, encryption/hashing, image transformations, or database serialization on the main isolate blocks the Dart event loop. No VSYNC tasks can execute, resulting in massive frame drops. Payload size (tens of KB and up) is only a hint: measure the parse time on the slowest supported device.
 * **Remediation**: Offload computations to an isolate via `Isolate.run()`.
 
 #### P40. High-Frequency Fine-Grained `MethodChannel` Invocations in Animation Loops
@@ -471,7 +487,7 @@ Any synchronous CPU-bound Dart operation exceeding **2 ms** during an ongoing in
   3. Execution of native platform handler.
   4. Result serialization and reverse thread hop back to Dart.
   Executing this 60 times/second adds 1–2ms of serialization overhead per tick.
-* **Remediation**: Batch multiple updates into a single call, or use `dart:ffi` for synchronous, zero-overhead direct native memory calls.
+* **Remediation**: Batch multiple updates into a single call, or move the loop to the platform side and send one result. `dart:ffi` removes the codec and thread hop but a synchronous FFI call still blocks the UI isolate for as long as the native code runs, so it is a measured trade-off, not a free upgrade.
 
 ---
 
@@ -507,7 +523,7 @@ The Dart runtime in Flutter operates on an **event-driven, single-threaded model
 * **CPU operations** (`jsonDecode(response.body)`) execute directly on the UI thread. Marking an expensive computation `async` does **not** stop it from blocking the UI thread.
 
 ### The Quantitative Offloading Threshold: Work > 2ms
-Whenever a synchronous operation is projected to exceed **2 ms**, it must be offloaded from the UI isolate to a background isolate.
+When a synchronous operation measurably exceeds a few milliseconds on the slowest supported device, move it off the UI isolate. Typical candidates:
 * Payload JSON string $> 50\text{ KB}$
 * Complex cryptography / hashing (Argon2, bcrypt, SHA-512 over files)
 * Image manipulation / compression / resizing

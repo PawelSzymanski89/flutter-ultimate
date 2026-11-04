@@ -268,10 +268,10 @@ Future<Box<T>> openEncryptedBox<T>(String boxName) async {
 
 ### 4.2 Memory Budgeting: `Box` vs `LazyBox`
 - **Standard `Box<T>`**: Loads **all keys and values** into device RAM on initialization.
-  - *Best for*: Configuration settings, theme options, active user profile (< 500 items).
+  - *Best for*: Configuration settings, theme options, the active user profile: small values that are read often.
   - *Anti-Pattern*: Loading a 10,000-item offline catalog with `Hive.openBox()`. This triggers immediate memory spikes and OOM crashes on low-end devices.
 - **`LazyBox<T>`**: Loads only **keys** into memory. Values are lazily read from disk on `box.get(key)`.
-  - *Best for*: Large datasets, chat messages, offline transaction logs, heavy cached payloads (> 500 items).
+  - *Best for*: Large or rarely read values: chat history, offline transaction logs, cached payloads. The threshold is memory, not a record count: measure the box size on a representative dataset before choosing (Trade-off).
 
 ### 4.3 Schema Evolution & TypeAdapter Invariants
 When defining `@HiveType` models:

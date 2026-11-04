@@ -56,7 +56,7 @@ function Add-Finding {
 # 1. Scan Dart Files for Traps
 $DartFiles = Get-ChildItem -Path $ResolvedPath -Filter "*.dart" -Recurse -File | Where-Object {
     $Rel = $_.FullName.Substring($ResolvedPath.Length).TrimStart("\", "/")
-    $Rel -notmatch "(?:^|[\\/])(build|\.dart_tool|\.git)(?:[\\/]|`$)" -and $_.Name -notmatch "\.(g|freezed)\.dart`$"
+    $Rel -notmatch "(?:^|[\\/])(build|\.dart_tool|\.git)(?:[\\/]|`$)" -and $Rel -notmatch "^(test|integration_test)[\\/]" -and $_.Name -notmatch "\.(g|freezed)\.dart`$"
 }
 
 foreach ($FileItem in $DartFiles) {
@@ -114,7 +114,7 @@ foreach ($FileItem in $DartFiles) {
         }
 
         # K01: Unprotected BuildContext usage across async gap
-        if ($Line -match "(?:^|\s)await\s+") {
+        if ($Line -match "(?:^|\s)await\s+" -and $Line -notmatch "=>.*(?:^|\s)await\s") {
             # Enclosing function body = nearest preceding block opener that is not control flow
             # and sits shallower than the await. The scan stops where that body closes.
             $AwaitDepth = $DepthBefore[$i]
@@ -154,6 +154,16 @@ foreach ($FileItem in $DartFiles) {
 
                 if ($FBefore -lt $BodyDepth) { break }
                 if ($FLine -match "^\s*//") { continue }
+                # Leaving the block that holds the await into its "else" / "else if" sibling: that branch never
+                # runs after this await. Handles both "} else {" on one line and "else {" on its own line.
+                if ($FLine -match "(?:^|[^A-Za-z0-9_])else(?:[^A-Za-z0-9_]|$)" -and $FLine.Contains("{") -and
+                    ($FBefore -lt $AwaitDepth -or $FLine -match "^\s*\}")) {
+                    $ElseTarget = $FAfter - 1
+                    for ($e = $j + 1; $e -lt $TotalLines; $e++) {
+                        if ($DepthAfter[$e] -le $ElseTarget) { $j = $e; break }
+                    }
+                    continue
+                }
 
                 if ($InMountedIf -and $FBefore -lt $MountedIfDepth) { $InMountedIf = $false }
                 if ($PendingNegMountedGuard -and $FBefore -lt $PendingNegDepth) { $PendingNegMountedGuard = $false }
@@ -181,7 +191,7 @@ foreach ($FileItem in $DartFiles) {
                 }
 
                 $DangerOp = ""
-                if ($FLine -match "setState\s*\(") {
+                if ($FLine -match "(?:^|[^A-Za-z0-9_.])setState\s*\(") {
                     $DangerOp = "setState()"
                 } elseif ($FLine -match "Navigator\.(?:push|pop|of|maybePop|pushNamed|pushReplacement|popUntil)\s*\(") {
                     $DangerOp = "Navigator"
@@ -189,7 +199,7 @@ foreach ($FileItem in $DartFiles) {
                     $DangerOp = "Dialog"
                 } elseif ($FLine -match "(?:ScaffoldMessenger\.of|Theme\.of|MediaQuery\.of)\s*\(\s*context") {
                     $DangerOp = "Context theme/messenger lookup"
-                } elseif ($FLine -match "context\.(?:read|watch|select|push|pop|go)") {
+                } elseif ($FLine -match "(?:^|[^A-Za-z0-9_.])context\.(?:read|watch|select|push|pop|go)") {
                     $DangerOp = "context extension method"
                 }
 

@@ -54,10 +54,17 @@ Consult deep reference guides for concrete catalogs, syntax blueprints, and edge
 | **Production Stack** | `references/production-stack.md` | `go_router` (StatefulShellRoute, auth guards), `flutter_bloc` (transformers, boundaries), `flutter_secure_storage` (hardware keystores), and `hive` (encrypted & LazyBox bounds). |
 | **Platform, Privacy & Security** | `references/platform-and-security.md` | RODO/GDPR native tracking toggles in AndroidManifest.xml and Info.plist, keyboard insets, SafeArea layout rules, and biometric storage. |
 | **Advanced Framework Patterns** | `references/advanced-framework-patterns.md` | Decision tables with trust labels: constraints-driven layout, `AnimatedSwitcher`, selectors, keep-alive / `PageStorageKey` / restoration, `TickerMode`, `Future.wait`, isolates, `InheritedModel`, gestures. |
+| **Impeller & GPU** | `references/impeller-and-gpu.md` | Telling UI-thread, raster-thread and GPU bottlenecks apart; Impeller availability; `saveLayer`, blur, clip and shadow cost as hypotheses to measure; custom painting; fragment shaders. |
+| **Testing & Reliability** | `references/testing-and-reliability.md` | Leak tracking in widget tests (`leak_tracker_flutter_testing`), ownership in tests, `pumpAndSettle` limits, `fake_async`, pending timers, isolation between tests. |
+| **Native Bridge & Background** | `references/native-bridge-and-background.md` | `MethodChannel` / `EventChannel` / Pigeon choice, `onListen` / `onCancel` symmetry, WorkManager and `BGTaskScheduler` limits, background isolates, deep link before auth is known. |
 | **Linter Configuration** | `assets/analysis_options.yaml` | Production-grade compiler and linter rules enforcing strict typing, const propagation, and resource disposal checks. |
 | **Deterministic Audit** | `scripts/audit-flutter.ps1`<br>`scripts/audit-flutter.sh` | Automated static analysis scripts running deterministic pattern detection for active core rules (P03, P07, P12, P19, P21, P26, P27, P32, K01, W01, W03, W06, W14, LINT, GDPR). |
 
 Load `advanced-framework-patterns.md` when the task names one of those mechanisms or you must choose between them; read only the section its tables point to. Do not load it for ordinary widget edits.
+Load `impeller-and-gpu.md` for jank on the raster thread, `BackdropFilter`, `saveLayer`, opacity or clipping cost, `CustomPainter` performance, shaders or Impeller questions.
+Load `testing-and-reliability.md` for widget or integration tests, leaked objects in tests, `leak_tracker`, `pumpAndSettle`, `fake_async`, pending timers or flaky tests.
+Load `native-bridge-and-background.md` for `MethodChannel`, `EventChannel`, Pigeon, native callbacks, WorkManager, `BGTaskScheduler`, background isolates, or deep links during auth restoration.
+None of these is loaded for an ordinary widget edit.
 
 ---
 
@@ -115,14 +122,14 @@ Activate this mode when designing a new feature, screen, or domain module prior 
 2. **Navigation & Persistence Architecture**:
    - Consult `references/production-stack.md` to architect declarative navigation via `GoRouter` using `StatefulShellRoute.indexedStack` for bottom tabs.
    - Protect sensitive secrets with `flutter_secure_storage` (hardware Keystore/Keychain).
-   - Use encrypted `Hive.openLazyBox` for offline caches exceeding 500 records to prevent OOM.
+   - Choose `Hive` `Box` vs `LazyBox` by record size, access pattern and memory budget, not by a fixed record count; encrypt boxes that hold user data.
 3. **Model Definition with Sealed Classes**:
    - Define UI states as `sealed class [Feature]State` with immutable subclasses.
    - Define domain events as `sealed class [Feature]Event`.
    - Never use nullable strings or boolean flags to represent screen loading/error states.
 4. **Render Boundary Architecture**:
    - Identify dynamic, frequently redrawn subtrees (e.g., custom timers, canvas drawing, complex animations). Mark them for `RepaintBoundary` isolation.
-   - Enforce sliver virtualization (`SliverList`, `SliverGrid`) for lists over 10 items.
+   - Virtualize (`.builder`, `SliverList`, `SliverGrid`) when the item count is unbounded or items are costly to build; a short, static column is fine.
 5. **Lifecycle Blueprinting**:
    - List every controller, stream, and listener required. Map initialization to `initState` and teardown to `dispose`.
 
@@ -254,7 +261,7 @@ powershell -ExecutionPolicy Bypass -File scripts/audit-flutter.ps1 -Json
 
 ### Step 4: Systematic Remediation Procedure
 1. Fix all **CRITICAL** memory leaks: add missing `dispose()` overrides for controllers, stream subscriptions, and listeners.
-2. Fix all **CRITICAL** context traps: insert `if (!context.mounted) return;` after every `await`.
+2. Fix all **CRITICAL** context traps: add a mounted guard between the `await` and the later use of `State` or `BuildContext`; do not add guards where nothing after the `await` touches them.
 3. Fix all **HIGH** performance traps: extract large builder methods into separate `StatelessWidget` classes; insert `const` constructors; wrap isolated animations in `RepaintBoundary`.
 4. Sign every applied fix with `// flutter-ultimate: <TRAP_ID> <reason>` (see Construction Mode, Step 0).
 5. Re-run `scripts/audit-flutter.ps1` or `scripts/audit-flutter.sh` until exit code is 0.
@@ -306,7 +313,7 @@ An engineering or audit task is complete ONLY when all applicable criteria pass:
 - [ ] **Resource Disposal Complete**: Every controller, sink, subscription, timer, and listener instantiated has a corresponding `dispose()` call (W1-W20 clean).
 - [ ] **Async Context Safe**: Every `BuildContext` usage following an `await` is guarded by `context.mounted` or `mounted` (K1-K14 clean).
 - [ ] **Dart 3 State Modeling**: Feature state machines use `sealed` classes with exhaustive switch matching and no unhandled states.
-- [ ] **List Virtualization**: All collections with dynamic or >10 items use `.builder` constructors with bounded layouts.
+- [ ] **List Virtualization**: Unbounded or expensive collections use `.builder` constructors with bounded layouts; the choice is justified by item count and cost, not by a fixed number.
 - [ ] **Battery & Lifecycle Wired**: Long-running timers or continuous updates pause when the app transitions to background via `AppLifecycleListener`.
 - [ ] **Privacy Defaults Intact**: Android and iOS manifests disable automatic tracking until user consent is captured.
 - [ ] **Linter Package Up-to-Date**: `pubspec.yaml` declares a current linter package (`flutter_lints` 5.x or newer, or `very_good_analysis`) in `dev_dependencies`.

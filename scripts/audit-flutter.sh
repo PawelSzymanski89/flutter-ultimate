@@ -134,6 +134,7 @@ while IFS= read -r file; do
   [[ -z "$file" ]] && continue
   rel_file="${file#"$TARGET_DIR"/}"
   if [[ "$rel_file" =~ (^|[\\/])(build|\.dart_tool|\.git)([\\/]|$) ]] || \
+     [[ "$rel_file" =~ ^(test|integration_test)[\\/] ]] || \
      [[ "$file" =~ \.(g|freezed)\.dart$ ]]; then
     continue
   fi
@@ -189,7 +190,8 @@ while IFS= read -r file; do
     fi
 
     # K01: Unprotected BuildContext across async gap
-    if [[ "$line" =~ (^|[[:space:]])await[[:space:]]+ ]]; then
+    # An arrow closure "() async => await x" has nothing after the await; skip it.
+    if [[ "$line" =~ (^|[[:space:]])await[[:space:]]+ ]] && ! [[ "$line" =~ =\>.*(^|[[:space:]])await[[:space:]] ]]; then
       # Enclosing function body = nearest preceding block opener that is not control flow
       # and sits shallower than the await. The scan stops where that body closes, so a
       # guard placed before the await (or in a sibling block) never counts.
@@ -242,6 +244,19 @@ while IFS= read -r file; do
         if [[ "$f_line" =~ ^[[:space:]]*// ]]; then
           continue
         fi
+        # Leaving the block that holds the await into its "else" / "else if" sibling: that branch never
+        # runs after this await. Handles both "} else {" on one line and "else {" on its own line.
+        if [[ "$f_line" =~ (^|[^A-Za-z0-9_])else([^A-Za-z0-9_]|$) ]] && [[ "$f_line" == *"{"* ]] && \
+           { (( f_before < await_depth )) || [[ "$f_line" =~ ^[[:space:]]*\} ]]; }; then
+          else_target=$((f_after - 1))
+          for ((e=j+1; e<total_lines; e++)); do
+            if (( depth_after[e] <= else_target )); then
+              j=$e
+              break
+            fi
+          done
+          continue
+        fi
 
         if [[ "$in_mounted_if" = true ]] && (( f_before < mounted_if_depth )); then
           in_mounted_if=false
@@ -276,7 +291,7 @@ while IFS= read -r file; do
         fi
 
         danger_op=""
-        if [[ "$f_line" =~ setState[[:space:]]*\( ]]; then
+        if [[ "$f_line" =~ (^|[^A-Za-z0-9_.])setState[[:space:]]*\( ]]; then
           danger_op="setState()"
         elif [[ "$f_line" =~ Navigator\.(push|pop|of|maybePop|pushNamed|pushReplacement|popUntil)[[:space:]]*\( ]]; then
           danger_op="Navigator"
@@ -284,7 +299,7 @@ while IFS= read -r file; do
           danger_op="Dialog"
         elif [[ "$f_line" =~ (ScaffoldMessenger\.of|Theme\.of|MediaQuery\.of)[[:space:]]*\([[:space:]]*context ]]; then
           danger_op="Context theme/messenger lookup"
-        elif [[ "$f_line" =~ context\.(read|watch|select|push|pop|go) ]]; then
+        elif [[ "$f_line" =~ (^|[^A-Za-z0-9_.])context\.(read|watch|select|push|pop|go) ]]; then
           danger_op="context extension method"
         fi
 

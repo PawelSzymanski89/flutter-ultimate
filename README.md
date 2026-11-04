@@ -10,7 +10,7 @@
 Not a widget library and not an app starter. Flutter Ultimate is three things in one repository:
 
 - a set of Flutter / Dart rules for an AI coding agent (Claude Code plugin, also usable as an [Agent Skills](https://agentskills.io) skill): frame budget, resource disposal, `BuildContext` after `await`, Dart 3 state modeling, privacy defaults in native manifests;
-- seven reference manuals the agent reads on demand (74 catalogued traps plus a decision guide for framework APIs that are easy to misuse);
+- ten reference manuals the agent reads on demand (74 catalogued traps, a decision guide for framework APIs that are easy to misuse, and guides for GPU diagnosis, leak testing and the native bridge);
 - a Bash / PowerShell script that checks 19 of those rules in CI, with no dependencies.
 
 The name is a leftover from the first version. It means "the whole trap catalog in one place", nothing more.
@@ -31,7 +31,7 @@ Like it? [Buy me a coffee ☕](https://buymeacoffee.com/cygan)
   - [Active Detectors](#active-detectors-19-rules)
   - [Running the Audit](#running-the-audit)
   - [CI and Pre-commit Examples](#ci-and-pre-commit-examples)
-  - [Measured on a Real Codebase](#measured-on-a-real-codebase)
+  - [Measured on Real Codebases](#measured-on-real-codebases)
 - [Testing](#testing)
 - [Roadmap](#roadmap)
 - [Reference Manuals](#reference-manuals)
@@ -53,7 +53,7 @@ Five tenets, each backed by a reference manual. `SKILL.md` holds the workflow an
 | **Dart 3 modeling** | Domain state as `sealed` hierarchies with exhaustive `switch`; a four-tier state ladder (`setState` / `ValueNotifier`, `ChangeNotifier`, Riverpod / Provider, BLoC / Cubit). | [dart3-and-architecture.md](references/dart3-and-architecture.md) |
 | **Privacy-first native defaults** | Firebase Analytics and Crashlytics disabled in `AndroidManifest.xml` and `Info.plist` until the user consents. | [platform-and-security.md](references/platform-and-security.md) |
 
-Cross-cutting manuals: [motion-and-ui.md](references/motion-and-ui.md) (physics animations, slivers, Hero, design tokens), [production-stack.md](references/production-stack.md) (`go_router`, `flutter_bloc`, `flutter_secure_storage`, `hive`) and, new in 1.4.0, [advanced-framework-patterns.md](references/advanced-framework-patterns.md): decision tables with trust labels (Rule / Default / Trade-off / Specialist) for `LayoutBuilder` vs `MediaQuery`, `AnimatedSwitcher` keys, Provider / BLoC selectors, keep-alive vs `PageStorageKey` vs restoration, `TickerMode`, `Future.wait`, `compute` vs `Isolate.run`, `InheritedModel` and `RawGestureDetector`.
+Cross-cutting manuals: [motion-and-ui.md](references/motion-and-ui.md) (physics animations, slivers, Hero, design tokens), [production-stack.md](references/production-stack.md) (`go_router`, `flutter_bloc`, `flutter_secure_storage`, `hive`), the 1.5.0 diagnosis guides [impeller-and-gpu.md](references/impeller-and-gpu.md), [testing-and-reliability.md](references/testing-and-reliability.md) and [native-bridge-and-background.md](references/native-bridge-and-background.md), and [advanced-framework-patterns.md](references/advanced-framework-patterns.md): decision tables with trust labels (Rule / Default / Trade-off / Specialist) for `LayoutBuilder` vs `MediaQuery`, `AnimatedSwitcher` keys, Provider / BLoC selectors, keep-alive vs `PageStorageKey` vs restoration, `TickerMode`, `Future.wait`, `compute` vs `Isolate.run`, `InheritedModel` and `RawGestureDetector`.
 
 Every code change the skill makes in your project is signed with `// flutter-ultimate: <TRAP_ID> <what changed and why>` directly above it, so skill-driven edits are visible in the diff and can be reverted one by one. The separate `// flutter-ultimate:ignore <TRAP_ID> <reason>` comment silences the audit for one line.
 
@@ -137,7 +137,7 @@ Without `node` the badge still renders (Flutter detection is plain shell); only 
 
 - The scanners are text and brace-depth heuristics, **not** a Dart AST parser. Braces inside string literals, block comments and unusual formatting skew them.
 - False positives and false negatives are possible. Every `K01` and `W*` message says what was and was not verified.
-- **K01** scans the function body that contains the `await` (nearest non-control-flow block opener). The awaited statement's own argument list is skipped, so callbacks inside `await showDialog(...)` are not reported. A guard placed before the `await`, or in a sibling block, does not count. Closures passed to `.then(...)` are scanned as their own scope.
+- **K01** scans the function body that contains the `await` (nearest non-control-flow block opener). The awaited statement's own argument list is skipped, so callbacks inside `await showDialog(...)` are not reported; an `else` branch of the block that holds the `await` is skipped; an arrow closure `() async => await x` is not scanned. A guard placed before the `await` does not count. `setState` is matched only as `State.setState`, not `something.setState(...)`. Files under top-level `test/` and `integration_test/` are not scanned.
 - **W01 / W03 / W06 / W14** treat a resource as State-owned when it is initialised at field level or assigned to a declared field; locals inside methods are ignored (clean them up with `try/finally`). A release counts only inside `dispose()` or inside a method that `dispose()` calls directly. Not tracked: anonymous `Timer(...)` / `.listen(...)` without assignment, tear-offs (`disposables.add(_c.dispose)`), bulk loops, releases delegated to mixins or managers. Use `// flutter-ultimate:ignore W01 <reason>` for those.
 - Treat findings as strong signals, not as proof. Verify CRITICAL findings in code review and performance findings with Flutter DevTools.
 
@@ -211,19 +211,21 @@ bash scripts/audit-flutter.sh --target . >/dev/null || {
 }
 ```
 
-### Measured on a Real Codebase
+### Measured on Real Codebases
 
-v1.4.0 was run against a production Flutter app of 808 Dart files / 186k lines (not public). On an Apple Silicon Mac the Bash scanner takes about 40 s and reports 585 findings:
+Two public apps, re-run for 1.5.0 after the fixes the samples produced: see [docs/case-study.md](docs/case-study.md) for per-rule counts and the manual classification of K01 / W01 samples on [LocalSend](https://github.com/localsend/localsend) and [Immich mobile](https://github.com/immich-app/immich).
 
-| Rule | Findings | Manual sample | Confirmed |
+A production Flutter app of 808 Dart files / 186k lines (not public) was first audited with the 1.4.0 scanner (585 findings, K01 138) and re-run with 1.5.0. On an Apple Silicon Mac the Bash scanner takes about 40 s. Numbers below are from the 1.5.0 scanner; the manual samples were read on the 1.4.0 output:
+
+| Rule | Findings (1.5.0) | Manual sample (1.4.0 output) | Confirmed |
 | :--- | ---: | :--- | :--- |
-| K01 | 138 | 10 random | 8 confirmed, 2 undetermined, 0 false |
+| K01 | 124 | 10 random | 8 confirmed, 2 undetermined, 0 false |
 | W01 | 70 | 6 random | 6 confirmed (no `dispose()` at all) |
-| P07 | 184 | | all `MediaQuery.of(context).size/padding/viewInsets` |
-| P27 | 87 | | `ClipRRect`, LOW |
+| P07 | 176 | | all `MediaQuery.of(context).size/padding/viewInsets` |
+| P27 | 85 | | `ClipRRect`, LOW |
 | P03 / P19 / P26 / P32 / P21 / P12 | 38 / 29 / 13 / 12 / 10 / 4 | | |
 
-Three detector fixes came out of that run and shipped in 1.4.0: a crash on a `State` class whose braces never balance (string literals), callbacks inside the awaited call's own argument list reported as "after await" (previously about a quarter of K01 findings on the measured codebase), and `mounted` inside a compound condition (`if (ok && mounted)`) not recognised as a guard.
+Three detector fixes came out of the 1.4.0 run: a crash on a `State` class whose braces never balance (string literals), callbacks inside the awaited call's own argument list reported as "after await" (previously about a quarter of K01 findings on the measured codebase), and `mounted` inside a compound condition (`if (ok && mounted)`) not recognised as a guard.
 
 ---
 
@@ -270,10 +272,18 @@ Long term
 - **[references/production-stack.md](references/production-stack.md)**: `go_router` StatefulShellRoute and auth guards, `flutter_bloc` concurrency transformers, `flutter_secure_storage` hardware keystore options, `hive` encrypted LazyBox budgeting.
 - **[references/platform-and-security.md](references/platform-and-security.md)**: Native manifest privacy flags, keyboard insets, SafeArea rules, sensitive-screen protection.
 - **[references/advanced-framework-patterns.md](references/advanced-framework-patterns.md)**: Decision tables with trust labels for constraints-driven layout, `AnimatedSwitcher`, selectors, state preservation and restoration, `TickerMode`, `Future.wait`, isolates, `InheritedModel`, `RawGestureDetector`, performance overlay.
+- **[references/impeller-and-gpu.md](references/impeller-and-gpu.md)**: Which thread is slow (UI build / layout / paint, raster, GPU wait), the profiling procedure, Impeller availability per platform, compositing cost as hypotheses, custom painting, fragment shaders.
+- **[references/testing-and-reliability.md](references/testing-and-reliability.md)**: Leak tracking in widget tests with `leak_tracker_flutter_testing`, ownership in tests, `pumpAndSettle` and `fake_async`, pending timers, isolation between tests.
+- **[references/native-bridge-and-background.md](references/native-bridge-and-background.md)**: `MethodChannel` / `EventChannel` / Pigeon, the `onListen` / `onCancel` contract, WorkManager and `BGTaskScheduler` facts, background isolates, deep link arriving before the auth state is known.
 
 ---
 
 ## Changelog
+
+### v1.5.0 (2026-11-05)
+- **Three diagnosis guides**: `references/impeller-and-gpu.md` (which thread is slow, profiling procedure, Impeller availability per platform verified against docs.flutter.dev, compositing cost as hypotheses, custom painting, fragment shaders), `references/testing-and-reliability.md` (`leak_tracker_flutter_testing` setup verified against the Flutter 3.47.5 SDK, what is and is not tracked, ownership in tests, `pumpAndSettle` / `fake_async`, pending timers, isolation) and `references/native-bridge-and-background.md` (`EventChannel` `onListen` / `onCancel` contract from the Android embedding, WorkManager and `BGTaskScheduler` facts, background isolates with `DartPluginRegistrant`, deep link before auth as a state table). Release-size and asset-budget section added to `performance-and-rendering.md` (`--analyze-size`, DevTools App Size diff, store sizes, no `tree-shake-icons` pubspec key). Routing rows and load rules in `SKILL.md`; eight new reviewer scenarios in `test/decisions.md`. Snippets analyzer-checked.
+- **Overstated rules corrected**: no "mounted guard after every await" (guard between the await and the later use), no "10 items" or "500 records" thresholds, `RepaintBoundary` isolates repaint and may or may not cache, FFI is not zero-overhead, JSON size is a hint not a rule, `BackdropFilter` is HIGH with a measurement note instead of CRITICAL, Impeller precompiles shaders but does not remove layout, overdraw or GPU cost. `discarded_futures` removed from the linter template (it flagged the manuals' own `_sub?.cancel()` in `dispose()`).
+- **Public case study** (`docs/case-study.md`): LocalSend and Immich mobile audited and sampled. Two rounds of samples exposed four K01 false-positive classes, now fixed in both scanners with regression fixtures: an arrow closure `() async => await x` scanned as if code followed the await, an `else` / `else if` branch (also `} else {` on one line) treated as running after the `await` in the `if` branch, `server.setState(...)` on another receiver matched as `State.setState`, and a global navigator accessor such as `Router.context.push(...)` matched as the widget's context. Files under top-level `test/` and `integration_test/` are no longer scanned. LocalSend went from 36 to 7 K01 findings, the 186k-line app from 138 to 124.
 
 ### v1.4.1 (2026-11-05)
 - **Git Bash on Windows**: a CRLF checkout made the 300-character `SKILL.md` line check count the carriage return; the Bash test runner now strips it and the longest line has margin. Release 1.4.0 failed only that CI step.

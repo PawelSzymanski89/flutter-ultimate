@@ -327,3 +327,89 @@ class _CompoundGuardWidgetState extends State<CompoundGuardWidget> {
   @override
   Widget build(BuildContext context) => const SizedBox.shrink();
 }
+
+// Regression (public case study): an arrow closure "() async => await x" has nothing after its
+// await, an else branch never runs after the await in the if branch, and "server.setState(...)"
+// on another receiver is not State.setState.
+class Server {
+  void setState(int s) {}
+}
+
+class CaseStudyWidget extends StatefulWidget {
+  const CaseStudyWidget({super.key});
+
+  @override
+  State<CaseStudyWidget> createState() => _CaseStudyWidgetState();
+}
+
+class _CaseStudyWidgetState extends State<CaseStudyWidget> {
+  final Server server = Server();
+
+  Future<void> branches(bool quick) async {
+    if (quick) {
+      await Future<void>.value();
+      if (!mounted) return;
+      Navigator.of(context).pop();
+    } else {
+      Navigator.of(context).pop();
+    }
+  }
+
+  Future<void> otherReceiver() async {
+    await Future<void>.value();
+    server.setState(1);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        TextButton(
+          onPressed: () async => await Navigator.of(context).maybePop(),
+          child: const Text('back'),
+        ),
+        Text('x', style: Theme.of(context).textTheme.bodyMedium),
+      ],
+    );
+  }
+}
+
+// Regression (public case study, second sample): "} else {" on one line after an await in the
+// if branch, and a global navigator accessor such as AppRouter.context.push(...) is not the
+// widget's BuildContext.
+class AppRouter {
+  static BuildContext get context => throw UnimplementedError();
+}
+
+extension _Nav on BuildContext {
+  void pop() {}
+}
+
+class CaseStudyTwoWidget extends StatefulWidget {
+  const CaseStudyTwoWidget({super.key});
+
+  @override
+  State<CaseStudyTwoWidget> createState() => _CaseStudyTwoWidgetState();
+}
+
+class _CaseStudyTwoWidgetState extends State<CaseStudyTwoWidget> {
+  bool advanced = false;
+
+  Future<void> toggle(bool quick) async {
+    if (quick) {
+      await Future<void>.value();
+      if (!mounted) return;
+      setState(() => advanced = true);
+    } else {
+      setState(() => advanced = false);
+    }
+  }
+
+  Future<void> globalNavigator() async {
+    await Future<void>.value();
+    AppRouter.context.pop();
+  }
+
+  @override
+  Widget build(BuildContext context) => const SizedBox.shrink();
+}

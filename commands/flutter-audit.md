@@ -26,7 +26,7 @@ Analyze every finding it reports (active detectors: P03, P07, P12, P19, P21, P26
 ### Step 3: Architectural Topology Scan
 - **Navigation Architecture**: Check for declarative routing with `go_router`. Verify bottom navigation bars utilize `StatefulShellRoute.indexedStack` to preserve branch state without rebuilding.
 - **State Management Ladder**: Ensure features adhere to the 4-Tier Ladder (Tier 1 leaf `setState` / `ValueNotifier` -> Tier 2 scoped `ChangeNotifier` -> Tier 3 domain `Riverpod` / `Provider` -> Tier 4 enterprise `BLoC` / `Cubit`). Verify event transformer discipline (`restartable`, `droppable`, `sequential`) in BLoC.
-- **Data & Credential Storage**: Verify `flutter_secure_storage` specifies hardware Keystore/Keychain configurations. Verify `hive` uses AES-256 encrypted boxes and `LazyBox` for collections over 500 records to prevent OOM.
+- **Data & Credential Storage**: Verify `flutter_secure_storage` specifies hardware Keystore/Keychain configurations. Verify `hive` boxes holding user data are encrypted and that `Box` vs `LazyBox` matches record size and access pattern (no fixed record-count rule).
 
 ### Step 4: Executive Report Output
 1. **Executive Summary**:

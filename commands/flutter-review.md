@@ -34,7 +34,7 @@ Systematically evaluate against the **Flutter Ultimate** standards in strict pri
      - `go_router`: `StatefulShellRoute.indexedStack` for bottom tabs; `refreshListenable` declarative auth guards.
      - `flutter_bloc`: `bloc_concurrency` event transformers (`restartable` for search, `droppable` for submit).
      - `flutter_secure_storage`: Hardware-backed Keystore/Keychain configurations; small entropy secrets only.
-     - `hive`: AES-256 encrypted boxes; `LazyBox` for datasets > 500 items.
+     - `hive`: encrypted boxes for user data; `LazyBox` when values are large or rarely read (judge by size and access pattern, not a fixed count).
 
 ### Output Structure
 

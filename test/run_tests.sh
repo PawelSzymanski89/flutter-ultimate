@@ -96,8 +96,8 @@ fi
 # Validate Plugin Packaging
 PLUGIN_MANIFEST="$PROJECT_ROOT/.claude-plugin/plugin.json"
 PLUGIN_SKILL="$PROJECT_ROOT/skills/flutter-ultimate/SKILL.md"
-CMD_AUDIT="$PROJECT_ROOT/commands/flutter-audit.md"
-CMD_REVIEW="$PROJECT_ROOT/commands/flutter-review.md"
+CMD_AUDIT="$PROJECT_ROOT/commands/audit.md"
+CMD_REVIEW="$PROJECT_ROOT/commands/review.md"
 
 if [[ -f "$PLUGIN_MANIFEST" ]]; then
   report_assert "plugin.json exists" 1 ""
@@ -124,25 +124,25 @@ else
 fi
 
 if [[ -f "$CMD_AUDIT" ]]; then
-  report_assert "commands/flutter-audit.md exists" 1 ""
+  report_assert "commands/audit.md exists" 1 ""
   if grep -q "^description:[[:space:]]*" "$CMD_AUDIT"; then
-    report_assert "commands/flutter-audit.md has description" 1 ""
+    report_assert "commands/audit.md has description" 1 ""
   else
-    report_assert "commands/flutter-audit.md has description" 0 "Missing description frontmatter"
+    report_assert "commands/audit.md has description" 0 "Missing description frontmatter"
   fi
 else
-  report_assert "commands/flutter-audit.md exists" 0 "Missing commands/flutter-audit.md"
+  report_assert "commands/audit.md exists" 0 "Missing commands/audit.md"
 fi
 
 if [[ -f "$CMD_REVIEW" ]]; then
-  report_assert "commands/flutter-review.md exists" 1 ""
+  report_assert "commands/review.md exists" 1 ""
   if grep -q "^description:[[:space:]]*" "$CMD_REVIEW"; then
-    report_assert "commands/flutter-review.md has description" 1 ""
+    report_assert "commands/review.md has description" 1 ""
   else
-    report_assert "commands/flutter-review.md has description" 0 "Missing description frontmatter"
+    report_assert "commands/review.md has description" 0 "Missing description frontmatter"
   fi
 else
-  report_assert "commands/flutter-review.md exists" 0 "Missing commands/flutter-review.md"
+  report_assert "commands/review.md exists" 0 "Missing commands/review.md"
 fi
 
 # Validate and test activate.js hook
@@ -151,7 +151,7 @@ if [[ -f "$HOOK_ACTIVATE" ]]; then
   report_assert "hooks/activate.js exists" 1 ""
 
   act_non_flutter=$(node "$HOOK_ACTIVATE" 2>&1 || true)
-  if echo "$act_non_flutter" | grep -q "/flutter-ultimate:flutter-review"; then
+  if echo "$act_non_flutter" | grep -q "/flutter-ultimate:review"; then
     report_assert "activate.js in non-Flutter directory reports namespaced commands" 1 ""
   else
     report_assert "activate.js in non-Flutter directory reports namespaced commands" 0 "Output: $act_non_flutter"

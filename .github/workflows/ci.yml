@@ -33,11 +33,11 @@ jobs:
             const fs = require("fs");
             const plugin = JSON.parse(fs.readFileSync(".claude-plugin/plugin.json", "utf8"));
             if (!plugin.name || !plugin.version) throw new Error("Missing name or version in plugin.json");
-            if (!plugin.commands || !plugin.commands.includes("./commands/flutter-audit.md")) {
-              throw new Error("Missing ./commands/flutter-audit.md in plugin.json commands");
+            if (!plugin.commands || !plugin.commands.includes("./commands/audit.md")) {
+              throw new Error("Missing ./commands/audit.md in plugin.json commands");
             }
-            if (!plugin.commands || !plugin.commands.includes("./commands/flutter-review.md")) {
-              throw new Error("Missing ./commands/flutter-review.md in plugin.json commands");
+            if (!plugin.commands || !plugin.commands.includes("./commands/review.md")) {
+              throw new Error("Missing ./commands/review.md in plugin.json commands");
             }
             if (!fs.existsSync(".claude-plugin/marketplace.json")) {
               throw new Error(".claude-plugin/marketplace.json does not exist");
@@ -45,11 +45,11 @@ jobs:
             if (!fs.existsSync("skills/flutter-ultimate/SKILL.md")) {
               throw new Error("skills/flutter-ultimate/SKILL.md does not exist");
             }
-            if (!fs.existsSync("commands/flutter-audit.md")) {
-              throw new Error("commands/flutter-audit.md does not exist");
+            if (!fs.existsSync("commands/audit.md")) {
+              throw new Error("commands/audit.md does not exist");
             }
-            if (!fs.existsSync("commands/flutter-review.md")) {
-              throw new Error("commands/flutter-review.md does not exist");
+            if (!fs.existsSync("commands/review.md")) {
+              throw new Error("commands/review.md does not exist");
             }
             console.log("Plugin manifest and structure valid:", plugin.name, plugin.version);
           '

@@ -26,5 +26,5 @@ if ($IsFlutter) {
         Get-Content $ModeFile -Raw
     }
 } else {
-    Write-Output "flutter-ultimate: loaded. Full mode activates automatically in Flutter projects (pubspec.yaml). Commands available: /flutter-review, /flutter-audit."
+    Write-Output "flutter-ultimate: loaded. Full mode activates automatically in Flutter projects (pubspec.yaml). Commands available: /flutter-ultimate:review, /flutter-ultimate:audit."
 }

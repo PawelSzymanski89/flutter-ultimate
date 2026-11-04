@@ -64,8 +64,8 @@ if (-not (Test-Path $SkillPath)) {
 $PluginManifest = Join-Path $ProjectRoot ".claude-plugin\plugin.json"
 $MarketplaceManifest = Join-Path $ProjectRoot ".claude-plugin\marketplace.json"
 $PluginSkill = Join-Path $ProjectRoot "skills\flutter-ultimate\SKILL.md"
-$CmdAudit = Join-Path $ProjectRoot "commands\flutter-audit.md"
-$CmdReview = Join-Path $ProjectRoot "commands\flutter-review.md"
+$CmdAudit = Join-Path $ProjectRoot "commands\audit.md"
+$CmdReview = Join-Path $ProjectRoot "commands\review.md"
 
 Report-Assert "plugin.json exists" (Test-Path $PluginManifest)
 Report-Assert "marketplace.json exists" (Test-Path $MarketplaceManifest)
@@ -77,16 +77,16 @@ if (Test-Path $PluginSkill) {
     Report-Assert "SKILL.md and skills/flutter-ultimate/SKILL.md are synchronized" ($SkillHash -eq $PluginSkillHash)
 }
 
-Report-Assert "commands/flutter-audit.md exists" (Test-Path $CmdAudit)
+Report-Assert "commands/audit.md exists" (Test-Path $CmdAudit)
 if (Test-Path $CmdAudit) {
     $CmdAuditContent = Get-Content $CmdAudit -Raw -Encoding UTF8
-    Report-Assert "commands/flutter-audit.md has description" ($CmdAuditContent -match "description:\s*.+")
+    Report-Assert "commands/audit.md has description" ($CmdAuditContent -match "description:\s*.+")
 }
 
-Report-Assert "commands/flutter-review.md exists" (Test-Path $CmdReview)
+Report-Assert "commands/review.md exists" (Test-Path $CmdReview)
 if (Test-Path $CmdReview) {
     $CmdReviewContent = Get-Content $CmdReview -Raw -Encoding UTF8
-    Report-Assert "commands/flutter-review.md has description" ($CmdReviewContent -match "description:\s*.+")
+    Report-Assert "commands/review.md has description" ($CmdReviewContent -match "description:\s*.+")
 }
 
 # Validate and test activate.js hook
@@ -95,7 +95,7 @@ $PositiveDir = Join-Path $ProjectRoot "test\fixtures\positive"
 Report-Assert "hooks/activate.js exists" (Test-Path $HookActivate)
 if (Test-Path $HookActivate) {
     $ActNonFlutter = (& node $HookActivate 2>&1) -join "`n"
-    Report-Assert "activate.js in non-Flutter directory reports namespaced commands" ($ActNonFlutter -match "/flutter-ultimate:flutter-review")
+    Report-Assert "activate.js in non-Flutter directory reports namespaced commands" ($ActNonFlutter -match "/flutter-ultimate:review")
 
     Push-Location $PositiveDir
     try {

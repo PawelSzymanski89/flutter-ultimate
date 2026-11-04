@@ -65,8 +65,8 @@ Claude Code prefixes plugin commands with the plugin name, so after installation
 
 | Command | Scope | Mechanism | Output |
 | :--- | :--- | :--- | :--- |
-| **`/flutter-ultimate:flutter-review`** | Working tree / diff / PR | Semantic review against `SKILL.md` and the manuals | Must-fix / should-fix / nice-to-have findings with `file:line`, verdict, frame-budget and disposal status |
-| **`/flutter-ultimate:flutter-audit`** | Whole repository | Runs `scripts/audit-flutter.*`, then reviews configuration and architecture | Executive summary, grouped findings, remediation roadmap |
+| **`/flutter-ultimate:review`** | Working tree / diff / PR | Semantic review against `SKILL.md` and the manuals | Must-fix / should-fix / nice-to-have findings with `file:line`, verdict, frame-budget and disposal status |
+| **`/flutter-ultimate:audit`** | Whole repository | Runs `scripts/audit-flutter.*`, then reviews configuration and architecture | Executive summary, grouped findings, remediation roadmap |
 
 Both commands change no code unless you ask; applied fixes carry the `// flutter-ultimate:` signature.
 
@@ -279,6 +279,9 @@ Long term
 ---
 
 ## Changelog
+
+### v1.6.0 (2026-11-05)
+- **Shorter command names**: `/flutter-ultimate:review` and `/flutter-ultimate:audit` (files `commands/review.md`, `commands/audit.md`). The plugin-name prefix is added by Claude Code and cannot be dropped; the second `flutter-` was redundant. The old names are gone, update any notes that referenced them.
 
 ### v1.5.0 (2026-11-05)
 - **Three diagnosis guides**: `references/impeller-and-gpu.md` (which thread is slow, profiling procedure, Impeller availability per platform verified against docs.flutter.dev, compositing cost as hypotheses, custom painting, fragment shaders), `references/testing-and-reliability.md` (`leak_tracker_flutter_testing` setup verified against the Flutter 3.47.5 SDK, what is and is not tracked, ownership in tests, `pumpAndSettle` / `fake_async`, pending timers, isolation) and `references/native-bridge-and-background.md` (`EventChannel` `onListen` / `onCancel` contract from the Android embedding, WorkManager and `BGTaskScheduler` facts, background isolates with `DartPluginRegistrant`, deep link before auth as a state table). Release-size and asset-budget section added to `performance-and-rendering.md` (`--analyze-size`, DevTools App Size diff, store sizes, no `tree-shake-icons` pubspec key). Routing rows and load rules in `SKILL.md`; eight new reviewer scenarios in `test/decisions.md`. Snippets analyzer-checked.

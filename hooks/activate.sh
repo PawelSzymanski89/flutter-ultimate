@@ -18,5 +18,5 @@ is_flutter() {
 if is_flutter; then
   cat "$here/mode.md"
 else
-  echo "flutter-ultimate: loaded. Full mode activates automatically in Flutter workspaces. Commands available: /flutter-review, /flutter-audit."
+  echo "flutter-ultimate: loaded. Full mode activates automatically in Flutter workspaces. Commands available: /flutter-ultimate:review, /flutter-ultimate:audit."
 fi

@@ -9,7 +9,20 @@ input=$(cat)
 
 # 1. Chain Ponytail statusline if installed
 claude_dir="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
-pony=$(ls -d "$claude_dir"/plugins/cache/ponytail/ponytail/*/hooks/ponytail-statusline.sh 2>/dev/null | sort -V | tail -1)
+pony=$(node -e '
+  const fs = require("fs");
+  const path = require("path");
+  const base = path.join(process.argv[1] || "", "plugins/cache/ponytail/ponytail");
+  if (!fs.existsSync(base)) process.exit(0);
+  try {
+    const dirs = fs.readdirSync(base).sort((a,b) => a.localeCompare(b, undefined, {numeric: true}));
+    for (let i = dirs.length - 1; i >= 0; i--) {
+      const p = path.join(base, dirs[i], "hooks/ponytail-statusline.sh");
+      if (fs.existsSync(p)) { process.stdout.write(p); break; }
+    }
+  } catch(e) {}
+' "$claude_dir" 2>/dev/null || true)
+
 if [ -z "$pony" ] && [ -f "$claude_dir/ponytail-statusline.sh" ]; then
   pony="$claude_dir/ponytail-statusline.sh"
 fi
@@ -36,9 +49,9 @@ dir=$(printf '%s' "$input" | node -e '
 # 3. Check for Flutter project marker in directory or parent hierarchy
 is_flutter=false
 check_dir="$dir"
-for _ in {1..4}; do
+for _ in {1..5}; do
   if [ -f "$check_dir/pubspec.yaml" ]; then
-    if grep -qs 'flutter' "$check_dir/pubspec.yaml"; then
+    if grep -Eqs '(sdk:[[:space:]]*flutter|flutter:[[:space:]]*$|flutter_test:)' "$check_dir/pubspec.yaml"; then
       is_flutter=true
       break
     fi
@@ -48,7 +61,7 @@ for _ in {1..4}; do
   check_dir="$parent"
 done
 
-# Check active session flag as secondary indicator
+# Check active session flag as secondary fallback
 flag_file="$claude_dir/.flutter-active"
 if [ "$is_flutter" = false ] && [ -f "$flag_file" ]; then
   is_flutter=true

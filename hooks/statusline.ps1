@@ -44,7 +44,7 @@ for ($i = 0; $i -lt 4; $i++) {
     if (Test-Path $Pubspec) {
         try {
             $Content = Get-Content $Pubspec -Raw
-            if ($Content -match "\bflutter\b") {
+            if ($Content -match "(sdk:\s*flutter|flutter:\s*$|flutter_test:)") {
                 $IsFlutter = $true
                 break
             }

@@ -30,6 +30,7 @@ All Flutter engineering under this skill follows the **Open Agent Skills 2026 Th
    - Deep specifications in `references/*.md` loaded on demand via `Read` or `Grep`.
    - Linter profile asset in `assets/analysis_options.yaml`.
    - Deterministic static analysis scripts in `scripts/audit-flutter.ps1` and `scripts/audit-flutter.sh`.
+   - Dedicated slash commands in `commands/*.toml`, `.opencode/command/*.md`, and `~/.claude/commands/*.md`.
 
 ### Five Non-Negotiable Core Laws
 1. **60/120 FPS Frame Budget**: Every frame must complete within 16.6ms (60 FPS) or 8.33ms (120 FPS ProMotion). Keep expensive layout calculations, widget rebuilds, and I/O off the UI isolate.
@@ -53,7 +54,7 @@ Consult deep reference guides for concrete catalogs, syntax blueprints, and edge
 | **Production Stack** | `references/production-stack.md` | `go_router` (StatefulShellRoute, auth guards), `flutter_bloc` (transformers, boundaries), `flutter_secure_storage` (hardware keystores), and `hive` (encrypted & LazyBox bounds). |
 | **Platform, Privacy & Security** | `references/platform-and-security.md` | RODO/GDPR native tracking toggles in AndroidManifest.xml and Info.plist, keyboard insets, SafeArea layout rules, and biometric storage. |
 | **Linter Configuration** | `assets/analysis_options.yaml` | Production-grade compiler and linter rules enforcing strict typing, const propagation, and resource disposal checks. |
-| **Deterministic Audit** | `scripts/audit-flutter.ps1`<br>`scripts/audit-flutter.sh` | Automated static analysis scripts running regex pattern matching against P1-P40, W1-W20, K1-K14, manifests, and `analysis_options.yaml`. |
+| **Deterministic Audit** | `scripts/audit-flutter.ps1`<br>`scripts/audit-flutter.sh` | Automated static analysis scripts running deterministic pattern detection for active core rules (P03-P27, K01, W01-W14, LINT, GDPR). |
 
 ---
 
@@ -67,10 +68,10 @@ Activate this mode when designing a new feature, screen, or domain module prior 
        v
 +--------------------------------------------------------------+
 | 1. Select State Tier from 4-Tier Ladder                      |
-|    Tier 1: Ephemeral Leaf  -> setState (StatefulWidget)      |
-|    Tier 2: Targeted Rebuild -> ValueNotifier / Listenable    |
-|    Tier 3: Scoped Flow     -> ChangeNotifier / Scoped State  |
-|    Tier 4: Enterprise Bus  -> BLoC / Riverpod                |
+|    Tier 1: Ephemeral Leaf  -> setState / ValueNotifier       |
+|    Tier 2: Scoped Subtree  -> ChangeNotifier / Notifier      |
+|    Tier 3: Domain Module   -> Riverpod / Provider            |
+|    Tier 4: Enterprise Bus  -> BLoC / Cubit                   |
 +------------------------------+-------------------------------+
                                |
                                v
@@ -100,10 +101,14 @@ Activate this mode when designing a new feature, screen, or domain module prior 
 
 ### Architectural Step-by-Step
 1. **State Tier Selection**:
-   - Consult `references/dart3-and-architecture.md` to pick the simplest sufficient tier on the 4-Tier Ladder (Tier 1: Leaf `setState` -> Tier 2: `ValueNotifier` -> Tier 3: Scoped `ChangeNotifier` -> Tier 4: `BLoC` / `Riverpod`).
+   - Consult `references/dart3-and-architecture.md` to pick the simplest sufficient tier on the 4-Tier Ladder:
+     Tier 1: Ephemeral Leaf `setState` / `ValueNotifier` ->
+     Tier 2: Scoped Subtree `ChangeNotifier` / `Notifier` ->
+     Tier 3: Domain Module `Riverpod` / `Provider` ->
+     Tier 4: Enterprise Bus `BLoC` / `Cubit`.
    - For BLoC or complex state flows, consult `references/production-stack.md` for `bloc_concurrency` event transformers (`restartable`, `droppable`, `sequential`).
    - Default to Tier 1 or Tier 2 for isolated widget state (toggle, text input, local animation).
-   - Reserve Tier 4 (`BLoC` / `Riverpod`) for complex multi-screen or async domain workflows.
+   - Reserve Tier 4 (`BLoC` / `Cubit`) for complex multi-screen or async domain workflows. Respect the user's existing project stack.
 2. **Navigation & Persistence Architecture**:
    - Consult `references/production-stack.md` to architect declarative navigation via `GoRouter` using `StatefulShellRoute.indexedStack` for bottom tabs.
    - Protect sensitive secrets with `flutter_secure_storage` (hardware Keystore/Keychain).
@@ -127,9 +132,9 @@ Activate this mode when authoring or refactoring Flutter widgets, business logic
 ### Step 1: Widget Construction Reflexes (60/120 FPS Pipeline)
 - **Aggressive Const Propagation**: Prefix every unchanging widget with `const` to bypass element reconciliation.
 - **Push Rebuilds to the Leaves**: Never place `setState()` or high-level provider listeners at the root of a large `build()` method. Wrap only the exact dynamic widget in a `ValueListenableBuilder`, `Consumer`, or `BlocBuilder`.
-- **Isolate Animated Subtrees**: Wrap complex animated widgets or canvas painters in `RepaintBoundary` to keep repaint paint bounds local.
+- **Isolate Animated Subtrees**: Wrap complex animated widgets or canvas painters in `RepaintBoundary` when profiling indicates independent repaint cycles.
 - **Cache Expensive Objects**: Do not instantiate `Paint`, `Path`, `TextStyle`, or regexes inside `build()` or `paint()`. Allocate once as static or class members.
-- **Sliver Virtualization**: Always use `.builder` constructors (`ListView.builder`, `GridView.builder`) with an explicit `itemExtent` or `prototypeItem` where dimensions are known.
+- **Sliver Virtualization**: Use `.builder` constructors (`ListView.builder`, `GridView.builder`) with an explicit `itemExtent` or `prototypeItem` where dimensions are known.
 
 ### Step 2: Async & Context Safety Protocol
 - Enforce the **Mounted Check Reflex**:
@@ -201,7 +206,7 @@ linter:
     - close_sinks
     - avoid_unnecessary_containers
 ```
-Verify native GDPR defaults in `android/app/src/main/AndroidManifest.xml` and `ios/Runner/Info.plist`:
+Verify native privacy defaults in `android/app/src/main/AndroidManifest.xml` and `ios/Runner/Info.plist`:
 - Android: `firebase_analytics_collection_enabled = false` and `firebase_crashlytics_collection_enabled = false`.
 - iOS: `FirebaseAnalyticsCollectionEnabled = false` and `FirebaseCrashlyticsCollectionEnabled = false`.
 
@@ -213,7 +218,7 @@ Run the cross-platform audit script from repository root:
 powershell -ExecutionPolicy Bypass -File scripts/audit-flutter.ps1
 ```
 
-**On Linux / macOS (POSIX Bash 4+):**
+**On Linux / macOS (Bash 3.2+):**
 ```bash
 bash scripts/audit-flutter.sh
 ```
@@ -227,16 +232,32 @@ powershell -ExecutionPolicy Bypass -File scripts/audit-flutter.ps1 -Json
 
 | Severity | Impact | Required Action |
 | :--- | :--- | :--- |
-| **CRITICAL** | Runtime crashes, memory leaks (W1-W20), unmounted context access (K1-K14), unclosed sinks. | Must be resolved immediately before merging or shipping. |
-| **HIGH** | Frame drops (under 60 FPS), layout thrashing (P1-P40), unbounded list building, missing RepaintBoundary. | Must be optimized to ensure 60/120 FPS pipeline. |
-| **MEDIUM** | Missing `const` constructors, sub-optimal state scoping, unvirtualized slivers. | Refactor during scheduled quality pass. |
-| **LOW** | Minor style cleanups, redundant containers, documentation nits. | Cleanup when touching file. |
+| **CRITICAL** | Runtime crashes, memory leaks in State (`W01`, `W03`, `W06`, `W14`), unmounted context access across await (`K01`), unclosed sinks. | Must be resolved immediately before merging or shipping. |
+| **HIGH** | Frame drops (under 60 FPS), layout thrashing (`P12`, `P19`, `P21`), active detector violations, outdated linter package. | Must be optimized to ensure 60/120 FPS pipeline. |
+| **MEDIUM** | Missing `const` constructors, broad `MediaQuery.of` dependency (`P07`), offscreen Opacity buffers (`P26`). | Refactor during scheduled quality pass. |
+| **LOW** | Minor style cleanups, ClipRRect optimization (`P27`), helper method extraction (`P03`), redundant containers. | Cleanup when touching file. |
 
 ### Step 4: Systematic Remediation Procedure
 1. Fix all **CRITICAL** memory leaks: add missing `dispose()` overrides for controllers, stream subscriptions, and listeners.
 2. Fix all **CRITICAL** context traps: insert `if (!context.mounted) return;` after every `await`.
 3. Fix all **HIGH** performance traps: extract large builder methods into separate `StatelessWidget` classes; insert `const` constructors; wrap isolated animations in `RepaintBoundary`.
 4. Re-run `scripts/audit-flutter.ps1` or `scripts/audit-flutter.sh` until exit code is 0.
+
+### Step 5: Dedicated Slash Commands (/flutter-review & /flutter-audit)
+Two standard slash commands provide targeted, ergonomic workflows across Claude Code, OpenCode, and IDE plugins:
+
+- **`/flutter-review`** (Working Tree & PR Diff Review):
+  - Focuses on uncommitted changes, staged diffs, or PR branches.
+  - Verifies 60/120 FPS pipeline, async `BuildContext` safety, disposal pairing, and Dart 3 idioms.
+  - Outputs a structured report: What change does, Must-fix (Critical/High), Should-fix (Medium), Nice-to-have (Low), Verdict (Ship/Request Changes), 60/120 FPS Status, Disposal Status.
+  - Source definitions: `~/.claude/commands/flutter-review.md`, `commands/flutter-review.toml`, `.opencode/command/flutter-review.md`.
+
+- **`/flutter-audit`** (Full Repository Static & Architecture Audit):
+  - Executes deterministic static analysis (`scripts/audit-flutter.ps1` / `scripts/audit-flutter.sh`).
+  - Audits configuration health (`pubspec.yaml` linter currency, `analysis_options.yaml` strict compiler flags).
+  - Scans native GDPR/RODO manifest toggles (`AndroidManifest.xml`, `Info.plist`).
+  - Audits architectural topology: `go_router` StatefulShellRoute, 4-tier state ladder, hardware-backed secure storage.
+  - Source definitions: `~/.claude/commands/flutter-audit.md`, `commands/flutter-audit.toml`, `.opencode/command/flutter-audit.md`.
 
 ---
 

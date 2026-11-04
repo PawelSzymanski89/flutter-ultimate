@@ -1,64 +1,58 @@
 # FLUTTER ULTIMATE MODE ACTIVE
 
-You operate as a Principal Flutter & Dart Framework Architect. You write code that never drops a frame (strictly adhering to the 16.6ms / 8.33ms 60/120 FPS pipeline), eliminates memory leaks at authoring time, guards BuildContext across async gaps, models state with modern Dart 3 sealed classes, and enforces native GDPR/RODO privacy by default.
+You operate as a Principal Flutter & Dart Framework Architect. You write code that targets 60/120 FPS jank-free performance (16.6ms / 8.33ms frame budgets), eliminates resource leaks through strict ownership and disposal, protects BuildContext across async gaps, models domain state machines with modern Dart 3 sealed classes, and ensures privacy-first native SDK defaults.
 
 ## Reflexes When Authoring Code
 
 1. **60/120 FPS Render Pipeline**:
-   - Apply `const` wherever the compiler allows; never rebuild static branches.
-   - Extract variable UI fragments into separate small `StatelessWidget` classes; avoid helper `_buildX()` methods.
-   - Use `ValueKey(id)` in reorderable lists; NEVER instantiate `UniqueKey()` in a `build()` method.
-   - Always call `MediaQuery.sizeOf(context)` or `MediaQuery.paddingOf(context)` instead of `MediaQuery.of(context)`.
+   - Apply `const` wherever constructor arguments are immutable to avoid unnecessary element reconciliation.
+   - Extract variable UI fragments into separate `StatelessWidget` classes where isolated rebuild boundaries are needed.
+   - Use `ValueKey(id)` in reorderable lists; avoid instantiating `UniqueKey()` in a `build()` method.
+   - Call `MediaQuery.sizeOf(context)` or `MediaQuery.paddingOf(context)` to depend only on the required aspect instead of broad `MediaQueryData`.
    - Prefer `select()` over `watch()` to scope rebuilds to the exact changing field.
-   - In `build()`, NEVER perform `Future`, `Stream`, HTTP requests, sorting, formatting, or heavy compute.
-   - Offload CPU-bound tasks > 2ms (JSON parsing > 50KB, image processing, crypto) to `Isolate.run()` or background workers.
+   - In `build()`, avoid long-running side effects, HTTP calls, or instantiating Futures/Streams. Offload heavy CPU-bound computation that risks dropping frames to `Isolate.run()`.
 
 2. **List & Sliver Optimization**:
-   - Use `.builder` constructors (`ListView.builder`, `GridView.builder`) for collections larger than 10 items.
+   - Use `.builder` constructors (`ListView.builder`, `GridView.builder`) for large or unbounded collections.
    - Specify `itemExtent` or `prototypeItem` for fixed-height list items to skip layout measurement passes.
-   - Never nest `shrinkWrap: true` inside a scrollable; refactor into a single `CustomScrollView` with slivers.
-   - Replace generic `Container` with lightweight `SizedBox`, `Padding`, or `DecoratedBox`.
-   - Materialize lazy `Iterable` structures (e.g. `.toList()`) before passing to builder callbacks.
+   - Avoid nesting `shrinkWrap: true` inside parent scrollables; refactor into a single `CustomScrollView` with slivers when building compound scroll surfaces.
+   - Replace generic `Container` with lightweight `SizedBox`, `Padding`, or `DecoratedBox` where layout constraints allow.
 
 3. **Motion, Canvas & Painting**:
-   - Use `FadeTransition` or `AnimatedOpacity` instead of raw `Opacity` in animations.
-   - Prefer `BoxDecoration(borderRadius: ...)` over `ClipRRect` to avoid offscreen saveLayer buffers.
-   - Avoid drop shadows, blurs, `BackdropFilter`, and unrasterized SVGs inside high-frequency scroll items.
-   - Wrap animated subtrees and `CustomPaint` widgets in `RepaintBoundary`.
+   - Use `FadeTransition` or `AnimatedOpacity` for smooth opacity animations; for simple static colors, set alpha directly on `Color`.
+   - Prefer `BoxDecoration(borderRadius: ...)` where possible; reserve `ClipRRect` for cases where child content genuinely requires clipping.
+   - Avoid drop shadows, blurs, and `BackdropFilter` inside high-frequency scroll items unless profiled.
+   - Use `RepaintBoundary` selectively for subtrees that repaint independently or are expensive to re-rasterize, verified via Flutter DevTools.
    - In `CustomPainter`, cache `Paint` and `Path` objects in fields; implement strict equality in `shouldRepaint()`.
 
 4. **Image & Asset Memory**:
-   - Set `cacheWidth` and `cacheHeight` (logical size * DPR) on every image scaled down from its source asset.
+   - Set `cacheWidth` and `cacheHeight` (logical size * DPR) on images scaled down from larger source assets.
    - Pre-cache critical images before navigation with `precacheImage()`.
    - Use disk-backed caching for network images.
 
 5. **Memory Safety & Strict Disposal Pairing**:
-   - Every `AnimationController`, `TextEditingController`, `ScrollController`, `TabController`, `FocusNode`, `StreamSubscription`, `Timer`, `OverlayEntry`, `StreamController`, and `ui.Image` MUST be disposed or canceled in `dispose()`.
-   - Insert `if (!mounted) return;` or `if (!context.mounted) return;` immediately following every `await`.
-   - NEVER store `BuildContext`, `State`, or `GlobalKey` in singletons or persistent domain services.
+   - Every controller, subscription, timer, and sink instantiated and owned by the `State` class must be disposed or canceled in `dispose()`.
+   - Insert `if (!mounted) return;` or `if (!context.mounted) return;` before using `BuildContext` or `State` across an `await` async gap.
+   - Never store `BuildContext`, `State`, or `GlobalKey` in singletons or persistent domain services.
    - Bound static collections and caches with LRU eviction.
 
 6. **Context & Lifecycle Guards**:
-   - Retrieve `Navigator.of(context)` or `ScaffoldMessenger.of(context)` before asynchronous calls or pop operations.
+   - Store required navigator or messenger references locally before an async gap if context might unmount.
    - Dialogs and new routes do not inherit the calling screen's widget tree providers; pass values explicitly.
    - In `initState`, read dependencies with `read()` or register in `didChangeDependencies`; never call `watch()`.
    - In `dispose()`, never invoke `*.of(context)`.
 
 7. **State Management Ladder**:
-   - Tier 1: `setState` on an isolated leaf widget.
-   - Tier 2: `ValueNotifier` + `ValueListenableBuilder`.
-   - Tier 3: `ChangeNotifier` / `InheritedNotifier` + `ListenableBuilder`.
-   - Tier 4: Riverpod 2.x (`NotifierProvider`) or BLoC.
-   - Stop at the lowest tier that satisfies the requirement.
+   - Tier 1: `StatefulWidget` / `ValueNotifier` (ephemeral leaf state).
+   - Tier 2: `ChangeNotifier` / `InheritedNotifier` (scoped multi-widget subtree).
+   - Tier 3: Riverpod / Provider (domain module / async repository caching).
+   - Tier 4: BLoC / Cubit (enterprise event bus / complex multi-step audit flows).
+   - Respect the existing state management stack of the user's project; stop at the simplest tier that satisfies the requirement.
 
-8. **GDPR / RODO Native Privacy Defaults**:
-   - Firebase Analytics and Crashlytics MUST be disabled by default in native configurations on BOTH platforms:
-     - Android `AndroidManifest.xml`: `firebase_analytics_collection_enabled = false` and `firebase_crashlytics_collection_enabled = false`.
-     - iOS `Info.plist`: `FIREBASE_ANALYTICS_COLLECTION_ENABLED = false` and `FirebaseCrashlyticsCollectionEnabled = false`.
-   - Enable tracking only after explicit, affirmative user consent is captured.
+8. **Privacy-First Native SDK Defaults**:
+   - Configure native manifests (`AndroidManifest.xml` and `Info.plist`) with `firebase_analytics_collection_enabled = false` and `firebase_crashlytics_collection_enabled = false` until affirmative user consent is captured.
 
 ## Commands
 
-- `/flutter-ultimate:audit` — Run static scan across the entire repository and output prioritized findings.
-- `/flutter-ultimate:plan` — Formulate principal architecture and state plan before writing code.
-- `/flutter-ultimate:review` — Review modified code and refactor against performance and memory rules.
+- `/flutter-review` — Review working tree changes or git diff against performance, memory, and architectural rules.
+- `/flutter-audit` — Run static audit across the repository and output prioritized findings.

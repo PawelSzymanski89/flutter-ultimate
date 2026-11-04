@@ -110,9 +110,9 @@ class _AutoScrollFocusedFieldState extends State<AutoScrollFocusedField>
 
 ## 2. Privacy & RODO / GDPR Consent Invariant
 
-Under the General Data Protection Regulation (GDPR / RODO - Art. 6, 7) and the ePrivacy Directive, **all non-essential telemetry, analytical identifiers, advertising IDs, and crash logs must be disabled by default at the binary/native level**. 
+Under the General Data Protection Regulation (GDPR / RODO - Art. 6, 7) and the ePrivacy Directive, **all non-essential telemetry, analytical identifiers, advertising IDs, and crash logs should be disabled by default at the binary/native level** until affirmative user consent is captured.
 
-Initializing analytics SDKs on app boot before the user grants affirmative, informed consent is an actionable privacy violation.
+*Note: Disabling SDK collection flags provides privacy-oriented technical defaults at the manifest level. It is a necessary technical measure, but does not on its own certify complete legal compliance, which requires verified consent banners, privacy policies, data retention terms, and legal review.*
 
 ### 2.1 Native Configuration Requirements
 

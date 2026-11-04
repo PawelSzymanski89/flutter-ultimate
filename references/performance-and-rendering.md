@@ -269,8 +269,8 @@ Any synchronous CPU-bound Dart operation exceeding **2 ms** during an ongoing in
   ```
 
 #### P19. Nested Scrolling with `shrinkWrap: true`
-* **Severity**: CRITICAL
-* **Mechanism**: `shrinkWrap: true` instructs a `ListView` to measure the total collective height of all its children. This strips the list of its virtualization guarantees: every child must undergo layout measurement regardless of scroll visibility.
+* **Severity**: HIGH
+* **Mechanism**: `shrinkWrap: true` instructs a `ListView` to measure the total collective height of all its children. Inside parent scrollable contexts, this strips the list of its virtualization guarantees: every child must undergo layout measurement regardless of scroll visibility. Note: for small, bounded dialogs or bottom sheets with few items, `shrinkWrap: true` is acceptable; avoid it in unbounded or nested scrolling surfaces.
 * **Remediation**: Consolidate scrolling into a single `CustomScrollView` utilizing Slivers:
   ```dart
   CustomScrollView(
@@ -296,9 +296,9 @@ Any synchronous CPU-bound Dart operation exceeding **2 ms** during an ongoing in
   );
   ```
 
-#### P21. Quadratic Multi-Pass Layout with `IntrinsicHeight` / `IntrinsicWidth`
+#### P21. Multi-Pass Layout with `IntrinsicHeight` / `IntrinsicWidth`
 * **Severity**: HIGH
-* **Mechanism**: `IntrinsicHeight` forces its child subtree through an speculative "dry layout" pass to compute its intrinsic dimensions, followed by the concrete layout pass. Nesting intrinsic widgets results in $O(N^2)$ layout complexity, destroying the frame budget.
+* **Mechanism**: `IntrinsicHeight` and `IntrinsicWidth` force their child subtree through speculative "dry layout" passes to compute intrinsic dimensions, followed by the concrete layout pass. Nesting intrinsic widgets results in multiplicative layout passes that can severely degrade the frame budget. Profile with DevTools before deploying intrinsic layouts.
 * **Remediation**: Use `CrossAxisAlignment.stretch` in bounded containers or utilize `CustomMultiChildLayout`.
 
 #### P22. Excessive `Container` Composition over Primitive Layout Widgets
@@ -328,12 +328,12 @@ Any synchronous CPU-bound Dart operation exceeding **2 ms** during an ongoing in
 
 ### Group C: Painting, Layering, and Rasterization (P26 – P33)
 
-#### P26. Animated `Opacity` Widget Triggering Offscreen `saveLayer` Buffers
-* **Severity**: CRITICAL
-* **Mechanism**: The `Opacity` widget with fractional opacity requires an off-screen render target (`saveLayer`). The GPU allocates an offscreen framebuffer, renders the subtree into it, and composites it back with an alpha blend. During animations, this allocates and discards GPU textures every single frame.
-* **Remediation**: Use `FadeTransition` or apply opacity directly to drawing colors:
+#### P26. Animated `Opacity` Widget Triggering Offscreen Compositing
+* **Severity**: MEDIUM
+* **Mechanism**: An `Opacity` widget with fractional opacity on complex subtrees can require an off-screen render target (`saveLayer`), rendering the subtree into an offscreen framebuffer and compositing it back. During animations, this allocates and discards GPU textures every frame.
+* **Remediation**: Use `FadeTransition` for animations, or apply opacity directly to drawing colors:
   ```dart
-  // BAD
+  // BAD during animations
   Opacity(opacity: _anim.value, child: const ComplexCard());
 
   // GOOD: Leverages hardware opacity layers without costly full-tree saveLayers
@@ -344,9 +344,9 @@ Any synchronous CPU-bound Dart operation exceeding **2 ms** during an ongoing in
   ```
 
 #### P27. Expensive Clipping (`ClipRRect`, `ClipPath`, `antiAliasWithSaveLayer`)
-* **Severity**: HIGH
-* **Mechanism**: `ClipRRect` and `ClipPath` force the rasterizer to intersect geometries against a clipping mask. Using `Clip.antiAliasWithSaveLayer` forces a full offscreen buffer pass on every render.
-* **Remediation**: Use `BoxDecoration.borderRadius` directly instead of wrapping children in `ClipRRect`. Avoid `Clip.antiAliasWithSaveLayer` unless specifically mitigating visual edge artifacts.
+* **Severity**: LOW
+* **Mechanism**: `ClipRRect` and `ClipPath` introduce rasterization clipping overhead. Using `Clip.antiAliasWithSaveLayer` forces a full offscreen buffer pass on every render.
+* **Remediation**: Use `BoxDecoration.borderRadius` directly when child content does not overflow boundaries. Reserve `ClipRRect` for cases where child content genuinely requires clipping, and avoid `Clip.antiAliasWithSaveLayer` unless necessary to mitigate specific visual edge artifacts.
 
 #### P28. Indiscriminate `BoxShadow` and `elevation` in Virtualized Rows
 * **Severity**: MEDIUM

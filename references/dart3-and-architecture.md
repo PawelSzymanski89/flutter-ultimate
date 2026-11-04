@@ -193,7 +193,7 @@ extension type const Cents(int value) {
 
 ## 2. The 4-Tier State Management Ladder
 
-The fundamental law of Flutter state architecture is: **Use the lowest tier on the ladder that satisfies the scope of the state.** Escalating trivial local interactions into global state management libraries introduces indirection, memory leaks, and unnecessary rebuilds.
+The fundamental law of Flutter state architecture is: **Use the lowest tier on the ladder that satisfies the scope of the state.** Escalating trivial local interactions into global state management libraries introduces indirection, memory leaks, and unnecessary rebuilds. Always respect the existing architecture of the user's repository: if the project already uses BLoC, Riverpod, or Provider, follow its established patterns rather than introducing conflicting state mechanisms.
 
 ```
        [Tier 4: Global Reactive Bus (Riverpod / BLoC)]

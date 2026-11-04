@@ -64,14 +64,30 @@ foreach ($FileItem in $DartFiles) {
     }
 
     $InBuildOrPaint = $false
+    $BraceDepth = 0
 
     for ($i = 0; $i -lt $TotalLines; $i++) {
         $Line = $Lines[$i]
         $LineNum = $i + 1
 
-        # Track if we are inside build() or paint() roughly
+        # Skip pure single-line comment lines for code analysis
+        if ($Line -match "^\s*//") {
+            continue
+        }
+
+        # Track entry and exit of build or paint methods
         if ($Line -match "\bWidget\s+build\s*\(|\bvoid\s+paint\s*\(") {
             $InBuildOrPaint = $true
+            $BraceDepth = 0
+        }
+
+        if ($InBuildOrPaint) {
+            $Opens = ($Line.ToCharArray() | Where-Object { $_ -eq '{' }).Count
+            $Closes = ($Line.ToCharArray() | Where-Object { $_ -eq '}' }).Count
+            $BraceDepth += ($Opens - $Closes)
+            if ($BraceDepth -le 0 -and ($Opens -gt 0 -or $Closes -gt 0)) {
+                $InBuildOrPaint = $false
+            }
         }
 
         # K01: Unprotected BuildContext usage across async gap
@@ -79,7 +95,7 @@ foreach ($FileItem in $DartFiles) {
             $NextFew = ($Lines[($i + 1)..[Math]::Min($i + 6, $TotalLines - 1)]) -join "`n"
             if ($NextFew -match "\b(Navigator\.of|ScaffoldMessenger\.of|Theme\.of|MediaQuery\.of)\s*\(\s*context\b" -or
                 $NextFew -match "\bcontext\.(read|watch|select|push|pop|go)\b") {
-                if ($NextFew -notmatch "(if\s*\(\s*!?\s*(context\.)?mounted\s*\)|return;|mounted\s*\?)") {
+                if ($NextFew -notmatch "(if\s*\(\s*!?\s*(context\.)?mounted\s*\)|mounted\s*\?)") {
                     if (-not (& $IsSuppressed $LineNum "K01")) {
                         Add-Finding -File $FileItem.FullName -Line $LineNum -Severity "CRITICAL" -TrapId "K01" `
                             -Message "BuildContext used across async gap without 'if (!context.mounted) return;' guard."
@@ -92,8 +108,8 @@ foreach ($FileItem in $DartFiles) {
         if ($Line -match "^\s*Widget\s+(_build\w+)\s*\(") {
             $MethodName = $Matches[1]
             if (-not (& $IsSuppressed $LineNum "P03")) {
-                Add-Finding -File $FileItem.FullName -Line $LineNum -Severity "MEDIUM" -TrapId "P03" `
-                    -Message "Helper '$MethodName()' creates rebuild overhead. Extract into a const StatelessWidget."
+                Add-Finding -File $FileItem.FullName -Line $LineNum -Severity "LOW" -TrapId "P03" `
+                    -Message "Helper '$MethodName()' rebuilds with parent. Consider extracting a const StatelessWidget for isolated rebuild boundaries."
             }
         }
 
@@ -111,7 +127,7 @@ foreach ($FileItem in $DartFiles) {
             if (-not (& $IsSuppressed $LineNum "P07")) {
                 $Method = $Matches[1]
                 Add-Finding -File $FileItem.FullName -Line $LineNum -Severity "HIGH" -TrapId "P07" `
-                    -Message "MediaQuery.of(context).$Method causes whole-tree rebuilds. Use MediaQuery.${Method}Of(context)."
+                    -Message "MediaQuery.of(context).$Method establishes broad dependency on MediaQueryData. Use MediaQuery.${Method}Of(context) to narrow rebuild scope."
             }
         }
 
@@ -127,7 +143,7 @@ foreach ($FileItem in $DartFiles) {
         if ($Line -match "\bshrinkWrap\s*:\s*true\b") {
             if (-not (& $IsSuppressed $LineNum "P19")) {
                 Add-Finding -File $FileItem.FullName -Line $LineNum -Severity "HIGH" -TrapId "P19" `
-                    -Message "shrinkWrap: true forces two-pass layout calculation. Refactor into CustomScrollView with Slivers."
+                    -Message "shrinkWrap: true triggers expensive layout passes when nested in scrollables. Consider CustomScrollView with Slivers for unbounded lists."
             }
         }
 
@@ -136,7 +152,7 @@ foreach ($FileItem in $DartFiles) {
             $Dimension = $Matches[1]
             if (-not (& $IsSuppressed $LineNum "P21")) {
                 Add-Finding -File $FileItem.FullName -Line $LineNum -Severity "HIGH" -TrapId "P21" `
-                    -Message "Intrinsic$Dimension forces speculative `$O(N^2) dry layout passes. Prefer bounded constraints."
+                    -Message "Intrinsic$Dimension forces speculative layout passes. Profile layout cost or use bounded layout constraints."
             }
         }
 
@@ -144,7 +160,7 @@ foreach ($FileItem in $DartFiles) {
         if ($Line -match "\bOpacity\s*\(") {
             if (-not (& $IsSuppressed $LineNum "P26")) {
                 Add-Finding -File $FileItem.FullName -Line $LineNum -Severity "MEDIUM" -TrapId "P26" `
-                    -Message "Opacity widget creates an offscreen render buffer. Use AnimatedOpacity or FadeTransition."
+                    -Message "Opacity widget may introduce an offscreen compositing pass. For simple items use color alpha; for animations use FadeTransition."
             }
         }
 
@@ -152,7 +168,7 @@ foreach ($FileItem in $DartFiles) {
         if ($Line -match "\bClipRRect\s*\(") {
             if (-not (& $IsSuppressed $LineNum "P27")) {
                 Add-Finding -File $FileItem.FullName -Line $LineNum -Severity "LOW" -TrapId "P27" `
-                    -Message "ClipRRect creates an extra saveLayer call. Prefer BoxDecoration(borderRadius: ...) where possible."
+                    -Message "ClipRRect introduces clipping overhead. Prefer BoxDecoration(borderRadius: ...) where clipping child content is not required."
             }
         }
     }
@@ -173,7 +189,8 @@ foreach ($FileItem in $DartFiles) {
             "AppLifecycleListener"
         )
         foreach ($Type in $Controllers) {
-            $MatchesList = [regex]::Matches($Content, "(?:final|late\s+final|\bvar)\s+(\w+)\s*=\s*(?:new\s+)?$Type\b")
+            $Pattern = "(?:(?:final|late\s+(?:final\s+)?|\bvar|$Type)\s+)*(?:$Type\s+)?(\w+)\s*=\s*(?:new\s+)?$Type\b"
+            $MatchesList = [regex]::Matches($Content, $Pattern)
             foreach ($Match in $MatchesList) {
                 $VarName = $Match.Groups[1].Value
                 $LineIdx = ($Content.Substring(0, $Match.Index) -split "\r?\n").Length
@@ -181,14 +198,15 @@ foreach ($FileItem in $DartFiles) {
                     $DisposeRegex = "\b$VarName\.dispose\s*\(\s*\)"
                     if ($Content -notmatch $DisposeRegex) {
                         Add-Finding -File $FileItem.FullName -Line $LineIdx -Severity "CRITICAL" -TrapId "W01" `
-                            -Message "Resource '$VarName' ($Type) is instantiated but never disposed via '$VarName.dispose()' in dispose()."
+                            -Message "Resource '$VarName' ($Type) is instantiated in State but never disposed via '$VarName.dispose()' in dispose()."
                     }
                 }
             }
         }
 
         # 2. StreamController requiring .close() (W14)
-        $StreamMatches = [regex]::Matches($Content, "(?:final|late\s+final|\bvar)\s+(\w+)\s*=\s*(?:new\s+)?StreamController\b")
+        $StreamPattern = "(?:(?:final|late\s+(?:final\s+)?|\bvar|StreamController(?:\s*<[^>]+>)?)\s+)*(?:StreamController(?:\s*<[^>]+>)?\s+)?(\w+)\s*=\s*(?:new\s+)?StreamController\b"
+        $StreamMatches = [regex]::Matches($Content, $StreamPattern)
         foreach ($Match in $StreamMatches) {
             $VarName = $Match.Groups[1].Value
             $LineIdx = ($Content.Substring(0, $Match.Index) -split "\r?\n").Length
@@ -237,47 +255,56 @@ if (Test-Path $PubspecPath) {
     $PubspecContent = Get-Content $PubspecPath -Raw -Encoding UTF8
     if ($PubspecContent -notmatch "(flutter_lints|very_good_analysis)") {
         Add-Finding -File $PubspecPath -Line 1 -Severity "CRITICAL" -TrapId "LINT-01" `
-            -Message "Missing linter package in dev_dependencies. Add 'flutter_lints: ^5.0.0'."
-    } elseif ($PubspecContent -match "flutter_lints:\s*[\^~]?([0-3])\.") {
-        $DetectedVer = $Matches[1]
+            -Message "Missing linter package in dev_dependencies. Add 'flutter_lints: ^5.0.0' or current package."
+    } elseif ($PubspecContent -match "flutter_lints:\s*[\^~]?[0-3]\.") {
         Add-Finding -File $PubspecPath -Line 1 -Severity "HIGH" -TrapId "LINT-02" `
-            -Message "Outdated flutter_lints major version ($DetectedVer.x). Upgrade to '^5.0.0' or '^4.0.0' for modern Dart 3 & performance rules."
+            -Message "Outdated flutter_lints version (legacy 1.x-3.x). Upgrade to a current release (e.g., ^5.0.0 or ^6.0.0) matching your Dart SDK."
     }
 }
 
-# 3. Check Native GDPR / RODO Defaults
+# 3. Check Native Privacy Manifest Flags
 $AndroidManifest = Join-Path $ResolvedPath "android\app\src\main\AndroidManifest.xml"
 if (Test-Path $AndroidManifest) {
     $ManifestContent = Get-Content $AndroidManifest -Raw -Encoding UTF8
-    if ($ManifestContent -notmatch 'android:name="firebase_analytics_collection_enabled"\s+android:value="false"') {
+    if ($ManifestContent -notmatch 'android:name="firebase_analytics_collection_enabled"\s*android:value="false"') {
         Add-Finding -File $AndroidManifest -Line 1 -Severity "CRITICAL" -TrapId "GDPR-01" `
-            -Message "Missing native AndroidManifest consent default: firebase_analytics_collection_enabled must be false."
+            -Message "Missing native AndroidManifest default: firebase_analytics_collection_enabled must be false."
     }
-    if ($ManifestContent -notmatch 'android:name="firebase_crashlytics_collection_enabled"\s+android:value="false"') {
+    if ($ManifestContent -notmatch 'android:name="firebase_crashlytics_collection_enabled"\s*android:value="false"') {
         Add-Finding -File $AndroidManifest -Line 1 -Severity "CRITICAL" -TrapId "GDPR-02" `
-            -Message "Missing native AndroidManifest consent default: firebase_crashlytics_collection_enabled must be false."
+            -Message "Missing native AndroidManifest default: firebase_crashlytics_collection_enabled must be false."
     }
 }
 
-$InfoPlist = Join-Path $ResolvedPath "ios\Runner\Info.plist"
-if (Test-Path $InfoPlist) {
-    $PlistContent = Get-Content $InfoPlist -Raw -Encoding UTF8
+$IosPlist = Join-Path $ResolvedPath "ios\Runner\Info.plist"
+if (Test-Path $IosPlist) {
+    $PlistContent = Get-Content $IosPlist -Raw -Encoding UTF8
     if ($PlistContent -notmatch '<key>FIREBASE_ANALYTICS_COLLECTION_ENABLED</key>\s*<false/>') {
-        Add-Finding -File $InfoPlist -Line 1 -Severity "CRITICAL" -TrapId "GDPR-03" `
-            -Message "Missing native Info.plist consent default: FIREBASE_ANALYTICS_COLLECTION_ENABLED must be <false/>."
+        Add-Finding -File $IosPlist -Line 1 -Severity "CRITICAL" -TrapId "GDPR-03" `
+            -Message "Missing native Info.plist default: FIREBASE_ANALYTICS_COLLECTION_ENABLED must be <false/>."
     }
     if ($PlistContent -notmatch '<key>FirebaseCrashlyticsCollectionEnabled</key>\s*<false/>') {
-        Add-Finding -File $InfoPlist -Line 1 -Severity "CRITICAL" -TrapId "GDPR-04" `
-            -Message "Missing native Info.plist consent default: FirebaseCrashlyticsCollectionEnabled must be <false/>."
+        Add-Finding -File $IosPlist -Line 1 -Severity "CRITICAL" -TrapId "GDPR-04" `
+            -Message "Missing native Info.plist default: FirebaseCrashlyticsCollectionEnabled must be <false/>."
     }
 }
 
-# 4. Output Formatting & Exit Code
+# 4. Output Results
 if ($Json) {
-    $Findings | ConvertTo-Json -Depth 3
+    $OutputObj = @()
+    foreach ($f in $Findings) {
+        $OutputObj += [PSCustomObject]@{
+            severity = $f.Severity
+            trapId   = $f.TrapId
+            file     = $f.File
+            line     = $f.Line
+            message  = $f.Message
+        }
+    }
+    $OutputObj | ConvertTo-Json -Depth 3
 } else {
-    Write-Host "==================================================" -ForegroundColor Cyan
-    Write-Host " Flutter Ultimate Static Code Audit" -ForegroundColor Cyan
+    Write-Host "=================================================="
+    Write-Host " Flutter Ultimate Static Code Audit"
     Write-Host " Target: $ResolvedPath"
     Write-Host "=================================================="
 
@@ -286,31 +313,33 @@ if ($Json) {
         exit 0
     }
 
-    $CriticalCount = @($Findings | Where-Object { $_.Severity -eq "CRITICAL" }).Count
-    $HighCount     = @($Findings | Where-Object { $_.Severity -eq "HIGH" }).Count
-    $MediumCount   = @($Findings | Where-Object { $_.Severity -eq "MEDIUM" }).Count
-    $LowCount      = @($Findings | Where-Object { $_.Severity -eq "LOW" }).Count
+    $CriticalCount = ($Findings | Where-Object { $_.Severity -eq "CRITICAL" }).Count
+    $HighCount     = ($Findings | Where-Object { $_.Severity -eq "HIGH" }).Count
+    $MediumCount   = ($Findings | Where-Object { $_.Severity -eq "MEDIUM" }).Count
+    $LowCount      = ($Findings | Where-Object { $_.Severity -eq "LOW" }).Count
 
-    foreach ($F in $Findings) {
-        $Color = switch ($F.Severity) {
+    foreach ($f in $Findings) {
+        $Color = switch ($f.Severity) {
             "CRITICAL" { "Red" }
             "HIGH"     { "Magenta" }
             "MEDIUM"   { "Yellow" }
-            default    { "Gray" }
+            "LOW"      { "Cyan" }
+            Default    { "White" }
         }
-        Write-Host "[$($F.Severity)] $($F.TrapId) in $($F.File):$($F.Line)" -ForegroundColor $Color
-        Write-Host "       $($F.Message)" -ForegroundColor White
+        Write-Host "[$($f.Severity)] $($f.TrapId) in $($f.File):$($f.Line)" -ForegroundColor $Color
+        Write-Host "       $($f.Message)"
     }
 
-    Write-Host "`n--------------------------------------------------"
-    Write-Host " Audit Summary: $($CriticalCount) Critical, $($HighCount) High, $($MediumCount) Medium, $($LowCount) Low"
+    Write-Host "--------------------------------------------------"
+    Write-Host " Audit Summary: $CriticalCount Critical, $HighCount High, $MediumCount Medium, $LowCount Low"
     Write-Host "--------------------------------------------------"
 }
 
-$HasFatal = @($Findings | Where-Object { $_.Severity -in @("CRITICAL", "HIGH") }).Count -gt 0
+$HasCritical = ($Findings | Where-Object { $_.Severity -in @("CRITICAL", "HIGH") }).Count -gt 0
+
 if ($Strict -and $Findings.Count -gt 0) {
     exit 1
-} elseif ($HasFatal) {
+} elseif ($HasCritical) {
     exit 1
 } else {
     exit 0

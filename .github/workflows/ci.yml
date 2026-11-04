@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  test-unix:
+    name: Test on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ ubuntu-latest, macos-latest ]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Make scripts executable
+        run: |
+          chmod +x scripts/*.sh hooks/*.sh test/*.sh
+
+      - name: Run test suite (Bash)
+        run: |
+          ./test/run_tests.sh
+
+  test-windows:
+    name: Test on windows-latest
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run test suite (PowerShell)
+        shell: pwsh
+        run: |
+          ./test/run_tests.ps1
+
+      - name: Run test suite (Git Bash)
+        shell: bash
+        run: |
+          ./test/run_tests.sh

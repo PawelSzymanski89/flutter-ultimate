@@ -5,9 +5,11 @@ flag_path="$claude_dir/.flutter-active"
 
 is_flutter() {
   local dir="$PWD"
-  for _ in {1..4}; do
-    if [ -f "$dir/pubspec.yaml" ] && grep -qs 'flutter' "$dir/pubspec.yaml"; then
-      return 0
+  for _ in {1..5}; do
+    if [ -f "$dir/pubspec.yaml" ]; then
+      if grep -Eqs '(sdk:[[:space:]]*flutter|flutter:[[:space:]]*$|flutter_test:)' "$dir/pubspec.yaml"; then
+        return 0
+      fi
     fi
     dir="$(dirname "$dir")"
     [ "$dir" = "/" ] && break
@@ -21,5 +23,5 @@ if is_flutter; then
   cat "$here/mode.md"
 else
   rm -f "$flag_path" 2>/dev/null || true
-  echo "flutter-ultimate: loaded. Full mode activates automatically in Flutter projects (pubspec.yaml). Commands available: /flutter-ultimate:audit, /flutter-ultimate:plan, /flutter-ultimate:review."
+  echo "flutter-ultimate: loaded. Full mode activates automatically in Flutter workspaces. Commands available: /flutter-review, /flutter-audit."
 fi

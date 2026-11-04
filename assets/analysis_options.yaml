@@ -1,6 +1,6 @@
 # ==============================================================================
-# Flutter Ultimate Linter Configuration
-# Production-grade rules enforcing 60/120 FPS, memory safety, and Dart 3 idioms.
+# Flutter Ultimate Linter Configuration Template
+# Recommended rules enforcing 60/120 FPS performance, memory safety, and Dart 3 idioms.
 # ==============================================================================
 include: package:flutter_lints/flutter.yaml
 
@@ -20,13 +20,11 @@ analyzer:
     unused_field: error
     unused_import: error
     unused_local_variable: error
-    todo: ignore
-    invalid_annotation_target: ignore
 
 linter:
   rules:
     # --------------------------------------------------------------------------
-    # 1. Performance & Frame Budget (P1-P40)
+    # 1. Performance & Frame Budget
     # --------------------------------------------------------------------------
     - prefer_const_constructors
     - prefer_const_constructors_in_immutables
@@ -39,7 +37,7 @@ linter:
     - avoid_redundant_argument_values
 
     # --------------------------------------------------------------------------
-    # 2. Memory & Resource Disposal (W1-W20)
+    # 2. Memory & Resource Disposal
     # --------------------------------------------------------------------------
     - cancel_subscriptions
     - close_sinks
@@ -47,7 +45,7 @@ linter:
     - unawaited_futures
 
     # --------------------------------------------------------------------------
-    # 3. BuildContext & Lifecycle Traps (K1-K14)
+    # 3. BuildContext & Lifecycle Traps
     # --------------------------------------------------------------------------
     - use_build_context_synchronously
 

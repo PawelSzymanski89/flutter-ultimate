@@ -9,12 +9,15 @@ const flagPath = path.join(claudeDir, '.flutter-active');
 
 function isFlutterProject(dir) {
   let cur = dir;
-  for (let i = 0; i < 4; i++) {
+  for (let i = 0; i < 5; i++) {
     const pubspec = path.join(cur, 'pubspec.yaml');
     if (fs.existsSync(pubspec)) {
       try {
         const content = fs.readFileSync(pubspec, 'utf8');
-        if (/\bflutter\b/.test(content)) return true;
+        // Match Flutter SDK declaration or flutter dependency
+        if (/sdk:\s*flutter|flutter:\s*\n|flutter_test:/i.test(content)) {
+          return true;
+        }
       } catch (e) {}
     }
     const parent = path.dirname(cur);
@@ -28,6 +31,9 @@ const active = isFlutterProject(cwd);
 
 try {
   if (active) {
+    if (!fs.existsSync(claudeDir)) {
+      fs.mkdirSync(claudeDir, { recursive: true });
+    }
     fs.writeFileSync(flagPath, '1', 'utf8');
   } else if (fs.existsSync(flagPath)) {
     fs.unlinkSync(flagPath);
@@ -41,6 +47,6 @@ if (active) {
   }
 } else {
   process.stdout.write(
-    'flutter-ultimate: loaded. Full mode activates automatically in Flutter projects (pubspec.yaml). Commands available: /flutter-ultimate:audit, /flutter-ultimate:plan, /flutter-ultimate:review.\n'
+    'flutter-ultimate: loaded. Full mode activates automatically in Flutter workspaces. Commands available: /flutter-review, /flutter-audit.\n'
   );
 }

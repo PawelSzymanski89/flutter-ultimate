@@ -142,7 +142,21 @@ foreach ($FileItem in $DartFiles) {
     }
 }
 
-# 2. Check Native GDPR / RODO Defaults
+# 2. Check pubspec.yaml for Up-to-Date Linter Package
+$PubspecPath = Join-Path $ResolvedPath "pubspec.yaml"
+if (Test-Path $PubspecPath) {
+    $PubspecContent = Get-Content $PubspecPath -Raw -Encoding UTF8
+    if ($PubspecContent -notmatch "(flutter_lints|very_good_analysis)") {
+        Add-Finding -File $PubspecPath -Line 1 -Severity "CRITICAL" -TrapId "LINT-01" `
+            -Message "Missing linter package in dev_dependencies. Add 'flutter_lints: ^5.0.0'."
+    } elseif ($PubspecContent -match "flutter_lints:\s*[\^~]?([0-3])\.") {
+        $DetectedVer = $Matches[1]
+        Add-Finding -File $PubspecPath -Line 1 -Severity "HIGH" -TrapId "LINT-02" `
+            -Message "Outdated flutter_lints major version ($DetectedVer.x). Upgrade to '^5.0.0' or '^4.0.0' for modern Dart 3 & performance rules."
+    }
+}
+
+# 3. Check Native GDPR / RODO Defaults
 $AndroidManifest = Join-Path $ResolvedPath "android\app\src\main\AndroidManifest.xml"
 if (Test-Path $AndroidManifest) {
     $ManifestContent = Get-Content $AndroidManifest -Raw -Encoding UTF8

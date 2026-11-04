@@ -177,8 +177,14 @@ Activate this mode when authoring or refactoring Flutter widgets, business logic
 Activate this mode when auditing a codebase for jank, leaks, anti-patterns, or preparing for release.
 
 ### Step 1: Pre-Flight Configuration Verification
+Verify that `pubspec.yaml` has an up-to-date linter in `dev_dependencies`:
+```yaml
+dev_dependencies:
+  flutter_lints: ^5.0.0 # Or minimum ^4.0.0 matching Flutter SDK
+```
 Verify baseline linter rules in `analysis_options.yaml`:
 ```yaml
+include: package:flutter_lints/flutter.yaml
 linter:
   rules:
     - prefer_const_constructors
@@ -258,4 +264,5 @@ An engineering or audit task is complete ONLY when all applicable criteria pass:
 - [ ] **List Virtualization**: All collections with dynamic or >10 items use `.builder` constructors with bounded layouts.
 - [ ] **Battery & Lifecycle Wired**: Long-running timers or continuous updates pause when the app transitions to background via `AppLifecycleListener`.
 - [ ] **Privacy Defaults Intact**: Android and iOS manifests disable automatic tracking until user consent is captured.
+- [ ] **Linter Package Up-to-Date**: `pubspec.yaml` declares a current linter package (`flutter_lints: ^5.0.0` or `very_good_analysis`) in `dev_dependencies`.
 - [ ] **Static Audit Passes**: Executing `scripts/audit-flutter.ps1` or `scripts/audit-flutter.sh` yields exit code 0 (zero CRITICAL/HIGH findings).

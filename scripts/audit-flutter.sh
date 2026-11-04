@@ -54,7 +54,17 @@ while IFS= read -r file; do
 
 done < <(find "$TARGET_DIR" -type f -name "*.dart" 2>/dev/null || true)
 
-# 2. Check Native GDPR / RODO Defaults
+# 2. Check pubspec.yaml for Up-to-Date Linter Package
+PUBSPEC_PATH="$TARGET_DIR/pubspec.yaml"
+if [[ -f "$PUBSPEC_PATH" ]]; then
+  if ! grep -Eqs '(flutter_lints|very_good_analysis)' "$PUBSPEC_PATH"; then
+    add_finding "$PUBSPEC_PATH" "1" "CRITICAL" "LINT-01" "Missing linter package in dev_dependencies. Add 'flutter_lints: ^5.0.0'."
+  elif grep -Eqs 'flutter_lints:[[:space:]]*[\^~]?[0-3]\.' "$PUBSPEC_PATH"; then
+    add_finding "$PUBSPEC_PATH" "1" "HIGH" "LINT-02" "Outdated flutter_lints version (legacy 1.x-3.x). Upgrade to '^5.0.0' or '^4.0.0' for Dart 3 rules."
+  fi
+fi
+
+# 3. Check Native GDPR / RODO Defaults
 ANDROID_MANIFEST="$TARGET_DIR/android/app/src/main/AndroidManifest.xml"
 if [[ -f "$ANDROID_MANIFEST" ]]; then
   if ! grep -qs 'android:name="firebase_analytics_collection_enabled"[[:space:]]*android:value="false"' "$ANDROID_MANIFEST"; then

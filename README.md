@@ -59,7 +59,7 @@ A comprehensive architectural framework, static code analyzer, and engineering s
 ## Core Architectural Tenets
 
 1. **Deterministic Frame Budgets**: Target 16.6ms (60 Hz standard displays) or 8.33ms (120 Hz ProMotion displays). Layout measurement thrashing, synchronous I/O, and un-virtualized dynamic lists are kept off the main UI isolate.
-2. **Zero-Leak Memory Invariant**: Every allocated resource holding system handles (`AnimationController`, `TextEditingController`, `ScrollController`, `FocusNode`, `StreamSubscription`, `Timer`, `StreamController`) must feature an explicit disposal or cancellation call in `dispose()`.
+2. **Disposal Pairing Rule**: Every allocated resource holding system handles (`AnimationController`, `TextEditingController`, `ScrollController`, `FocusNode`, `StreamSubscription`, `Timer`, `StreamController`) must feature an explicit disposal or cancellation call in `dispose()`.
 3. **Async Gap Verification**: Guard widget interaction, navigation transition, or theme lookup across an `await` statement with explicit mounted verification (`if (!context.mounted) return;` or `if (!mounted) return;`).
 4. **Exhaustive Dart 3 Modeling**: Model multi-state domain flows using `sealed` class hierarchies and consume them via exhaustive switch expressions without default fallback clauses.
 5. **Privacy-First Native Defaults**: Firebase Analytics and Crashlytics are disabled by default at the operating system manifest level (`AndroidManifest.xml` and `Info.plist`) until affirmative user consent is registered.
@@ -339,12 +339,12 @@ void dispose() {
 
 ## Dedicated Commands
 
-Two ergonomic commands provide targeted entrypoints across Claude Code and plugin environments:
+Two commands ship with the plugin. Claude Code namespaces plugin commands with the plugin name, so after installation they appear exactly as listed below (type `/flutter-ultimate:` to see both):
 
 | Command | Scope | Mechanism | Function |
 | :--- | :--- | :--- | :--- |
-| **`/flutter-review`** | Working tree changes / git diff | Semantic LLM Analysis (`SKILL.md`) | Reviews changes against 60/120 FPS pipeline, disposal pairing, `BuildContext` async safety, and Dart 3 idioms. Outputs a 7-section structured report. |
-| **`/flutter-audit`** | Whole repository / directory | Deterministic Script (`scripts/audit-flutter.*`) | Executes deterministic static code analysis, verifies linter currency, checks native manifest privacy flags, and outputs human-readable or JSON reports. |
+| **`/flutter-ultimate:flutter-review`** | Working tree changes / git diff | Semantic LLM Analysis (`SKILL.md`) | Reviews changes against 60/120 FPS pipeline, disposal pairing, `BuildContext` async safety, and Dart 3 idioms. Outputs a 7-section structured report. |
+| **`/flutter-ultimate:flutter-audit`** | Whole repository / directory | Deterministic Script (`scripts/audit-flutter.*`) | Executes deterministic static code analysis, verifies linter currency, checks native manifest privacy flags, and outputs human-readable or JSON reports. |
 
 ---
 
@@ -354,7 +354,7 @@ Two ergonomic commands provide targeted entrypoints across Claude Code and plugi
 
 Flutter Ultimate is packaged as a standard Claude Code plugin (`.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, `commands/`, `skills/`, `hooks/`).
 
-**Requirements:** `node` on `PATH` (the SessionStart hook and the statusline run through Node; the audit scripts themselves need only Bash 3.2+ or PowerShell 5.1+).
+**Requirements:** `node` on `PATH` for the SessionStart hook (without it the hook does nothing and the full mode is not injected). The statusline degrades to badge-only without Node, and the audit scripts need only Bash 3.2+ or PowerShell 5.1+.
 
 **Single-Step Marketplace Installation (Claude Code 2.1.275+):**
 ```bash
@@ -385,13 +385,19 @@ git clone https://github.com/PawelSzymanski89/flutter-ultimate.git ~/.claude/ski
 
 ### Mode C: Statusline Indicator Hook
 
-Enable the dynamic `[FLUTTER]` statusline badge in Claude Code:
+Enable the dynamic `[FLUTTER]` statusline badge in Claude Code.
+
+The statusline needs a stable path. A marketplace install lives in a versioned cache (`~/.claude/plugins/cache/<marketplace>/flutter-ultimate/<version>/`) that moves on every update, so do not point the statusline there. Clone the repository once to a fixed location (the same clone also serves as the Mode B skill install):
+
+```bash
+git clone https://github.com/PawelSzymanski89/flutter-ultimate.git ~/.claude/skills/flutter-ultimate
+```
 
 **Windows (`~/.claude/settings.json`):**
 ```json
 "statusLine": {
   "type": "command",
-  "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"~/.claude/plugins/flutter-ultimate/hooks/statusline.ps1\""
+  "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"%USERPROFILE%/.claude/skills/flutter-ultimate/hooks/statusline.ps1\""
 }
 ```
 
@@ -399,9 +405,11 @@ Enable the dynamic `[FLUTTER]` statusline badge in Claude Code:
 ```json
 "statusLine": {
   "type": "command",
-  "command": "bash ~/.claude/plugins/flutter-ultimate/hooks/statusline.sh"
+  "command": "bash ~/.claude/skills/flutter-ultimate/hooks/statusline.sh"
 }
 ```
+
+Without `node` the badge still renders (Flutter detection is plain shell); only the optional Ponytail chaining is skipped.
 
 ---
 
@@ -409,8 +417,15 @@ Enable the dynamic `[FLUTTER]` statusline badge in Claude Code:
 
 Flutter Ultimate provides a clear separation of concerns between **deterministic static analysis** and **semantic agent review**:
 
-- **Deterministic Static Audit (`scripts/audit-flutter.*`)**: 19 automated rules providing instant, zero-dependency, reproducible pass/fail checks for CI/CD with exact file, line, and trapId reporting (20 findings exercised concurrently in the positive fixture; `LINT-01` verifies configuration presence while `LINT-02` flags outdated packages).
-- **Semantic Agent Review (`/flutter-review` & `SKILL.md`)**: 54 semantic patterns (and 80+ in `references/*.md`) evaluating architectural trade-offs, state management, and micro-interactions.
+- **Deterministic Static Audit (`scripts/audit-flutter.*`)**: 19 automated rules providing instant, zero-dependency, reproducible pass/fail checks for CI/CD with exact file, line, and trapId reporting (25 findings exercised concurrently in the positive fixture; `LINT-01` verifies configuration presence while `LINT-02` flags outdated packages).
+- **Semantic Agent Review (`/flutter-ultimate:flutter-review` & `SKILL.md`)**: 54 semantic patterns (and 80+ in `references/*.md`) evaluating architectural trade-offs, state management, and micro-interactions.
+
+### What the detectors do and do not see
+
+The scanners are deterministic text heuristics, not a Dart parser. Every `K01` and `W*` message says so. Known limits:
+
+- **K01** scans the function body that contains the `await` (brace depth, comment lines ignored). A guard placed before the `await`, or in a sibling block, does not count. Closures passed to `.then(...)` are scanned as their own scope. Braces inside string literals skew the depth.
+- **W01/W03/W06/W14** treat a resource as State-owned when it is initialised at field level or assigned to a declared field; locals inside methods are ignored (clean them up with `try/finally`, not `State.dispose()`). A release counts only inside `dispose()` or inside a method that `dispose()` calls directly (one level). Not tracked: anonymous `Timer(...)` / `.listen(...)` without assignment, tear-offs (`disposables.add(_c.dispose)`), bulk loops (`for (final c in _all) c.dispose()`), releases delegated to mixins or managers. Use `// flutter-ultimate:ignore W01 <reason>` for those.
 
 ### Active Automated Detectors (19 Rules)
 
@@ -505,6 +520,13 @@ For exhaustive code comparisons, structural diagrams, and verified solutions, co
 ---
 
 ## Changelog
+
+### v1.3.1 (2026-11-04)
+- **K01 Function-Scoped Analysis**: The scan now resolves the function body that contains the `await` (nearest non-control-flow block opener) instead of counting braces from the `await` line. Fixes the false negative when a mounted check sits *before* the `await` inside an `if` block, recognises generic `showDialog<void>(...)`, and deduplicates findings when several `await`s precede one unsafe line. Same-line guards (`if (mounted) setState(...)`) are honoured.
+- **W01/W03/W06/W14 Ownership & Cleanup Path**: A resource is State-owned when initialised at field level or assigned to a declared field (locals in methods are no longer reported). A release now counts only in `dispose()` or in a method `dispose()` calls directly; a release that lives only in an orphan helper is reported with the helper named. Messages state what was and was not verified.
+- **Honest Wording**: Detector messages and README describe the checks as static heuristics; "zero-leak" tenet renamed to the disposal pairing rule; command names shown with the `flutter-ultimate:` namespace Claude Code actually uses.
+- **Statusline**: Documented a stable clone path instead of the versioned marketplace cache; `statusline.sh` renders the badge without `node` (Ponytail chaining is the only Node-dependent part).
+- **CI**: Windows job also runs the suite under Windows PowerShell 5.1; macOS job prints `sw_vers` / `uname -m`. Fixtures extended with the new K01 and ownership cases (parity count 25).
 
 ### v1.3.0 (2026-11-04)
 - **Disposal Detectors Re-Scoped (W01, W03, W06, W14)**: A resource counts as owned by the `State` when it is created anywhere in that class (field, `initState`, `didChangeDependencies`, any method), and as released when `.dispose()` / `.cancel()` / `.close()` on that variable appears anywhere in the same class. Fixes false positives on teardown helpers called from `dispose()` and false negatives on timers started from methods or subscriptions opened in `didChangeDependencies`. Known limits: anonymous `Timer`/`listen` without assignment are not tracked; tear-offs (`disposables.add(_c.dispose)`) and bulk loops (`for (final c in _all) c.dispose()`) are reported and need an `ignore` comment.

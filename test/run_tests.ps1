@@ -220,7 +220,7 @@ if ($BashExe) {
             }
         } | Sort-Object trapId, file, line
 
-        Report-Assert "Both scanners report identical findings count (20)" ($PsNorm.Count -eq $BashNorm.Count -and $PsNorm.Count -eq 20) "PS: $($PsNorm.Count), Bash: $($BashNorm.Count)"
+        Report-Assert "Both scanners report identical findings count (25)" ($PsNorm.Count -eq $BashNorm.Count -and $PsNorm.Count -eq 25) "PS: $($PsNorm.Count), Bash: $($BashNorm.Count)"
 
         $Diff = Compare-Object $PsNorm $BashNorm -Property severity, trapId, file, line, message
         Report-Assert "Zero discrepancies in severity, trapId, file, line, message" ($null -eq $Diff)

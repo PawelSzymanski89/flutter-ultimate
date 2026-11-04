@@ -106,3 +106,74 @@ class _LateAcquireWidgetState extends State<LateAcquireWidget> {
   @override
   Widget build(BuildContext context) => const SizedBox.shrink();
 }
+
+// K01 scope cases: the guard must sit between the await and the context use, inside the same function.
+class K01ScopeWidget extends StatefulWidget {
+  const K01ScopeWidget({super.key});
+
+  @override
+  State<K01ScopeWidget> createState() => _K01ScopeWidgetState();
+}
+
+class _K01ScopeWidgetState extends State<K01ScopeWidget> {
+  Object? user;
+  bool loading = true;
+
+  // K01: context used after a nested early-exit block
+  Future<void> unsafeAfterNestedBlock() async {
+    await Future<void>.value();
+    if (user == null) {
+      return;
+    }
+    Navigator.of(context).pop();
+  }
+
+  // K01: a mounted check BEFORE the await does not protect the code after it
+  Future<void> unsafeAfterMountedBeforeAwait() async {
+    if (mounted) {
+      await Future<void>.value();
+    }
+    Navigator.of(context).pop();
+  }
+
+  // K01: generic showDialog<void>(...)
+  Future<void> unsafeDialog() async {
+    await Future<void>.value();
+    showDialog<void>(context: context, builder: (_) => const AlertDialog());
+  }
+
+  // K01: inside try after await
+  Future<void> unsafeInTry() async {
+    await Future<void>.value();
+    try {
+      Navigator.of(context).pop();
+    } finally {}
+  }
+
+  @override
+  Widget build(BuildContext context) => const SizedBox.shrink();
+}
+
+// W01: dispose() exists but the release lives in a helper that dispose() never calls
+class OrphanCleanupWidget extends StatefulWidget {
+  const OrphanCleanupWidget({super.key});
+
+  @override
+  State<OrphanCleanupWidget> createState() => _OrphanCleanupWidgetState();
+}
+
+class _OrphanCleanupWidgetState extends State<OrphanCleanupWidget> {
+  final controller = TextEditingController();
+
+  void cleanup() {
+    controller.dispose();
+  }
+
+  @override
+  void dispose() {
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => const SizedBox.shrink();
+}

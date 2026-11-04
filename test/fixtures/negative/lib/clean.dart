@@ -202,3 +202,65 @@ class _HelperTeardownWidgetState extends State<HelperTeardownWidget> with Single
   @override
   Widget build(BuildContext context) => const SizedBox.shrink();
 }
+
+// Regression: K01 scope must not bleed into the next method, and local Future<T> declarations
+// must not end the scan early (the guarded use after them stays clean).
+class K01NeighboursWidget extends StatefulWidget {
+  const K01NeighboursWidget({super.key});
+
+  @override
+  State<K01NeighboursWidget> createState() => _K01NeighboursWidgetState();
+}
+
+class _K01NeighboursWidgetState extends State<K01NeighboursWidget> {
+  Future<void> firstHasAwait() async {
+    await Future<void>.value();
+  }
+
+  void secondUsesContextSync() {
+    Navigator.of(context).pop();
+  }
+
+  Future<void> guardedAfterLocalFuture() async {
+    await Future<void>.value();
+    Future<void> refresh = Future<void>.value();
+    await refresh;
+    if (!mounted) return;
+    Navigator.of(context).pop();
+  }
+
+  Future<void> guardedOnSameLine() async {
+    await Future<void>.value();
+    if (mounted) setState(() {});
+  }
+
+  @override
+  Widget build(BuildContext context) => const SizedBox.shrink();
+}
+
+// Regression: a local controller cleaned up in try/finally is not State-owned and must not trigger W01
+class LocalResourceWidget extends StatefulWidget {
+  const LocalResourceWidget({super.key});
+
+  @override
+  State<LocalResourceWidget> createState() => _LocalResourceWidgetState();
+}
+
+class _LocalResourceWidgetState extends State<LocalResourceWidget> {
+  void run() {
+    final local = TextEditingController();
+    try {
+      local.text = 'x';
+    } finally {
+      local.dispose();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => const SizedBox.shrink();
+}
+
+// Regression: a non-State service in the same file is never attributed to a State class
+class PlainService {
+  final TextEditingController serviceController = TextEditingController();
+}

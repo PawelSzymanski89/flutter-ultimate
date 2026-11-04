@@ -66,7 +66,14 @@ add_finding() {
   local trap_id="$4"
   local message="$5"
   local rel_file="${file#"$TARGET_DIR"/}"
-  FINDINGS+=("$severity|$trap_id|$rel_file|$line|$message")
+  local rec="$severity|$trap_id|$rel_file|$line|$message"
+  local existing
+  if (( ${#FINDINGS[@]} > 0 )); then
+    for existing in "${FINDINGS[@]}"; do
+      [[ "$existing" == "$rec" ]] && return 0
+    done
+  fi
+  FINDINGS+=("$rec")
 }
 
 json_escape() {
@@ -91,6 +98,37 @@ is_suppressed() {
   return 1
 }
 
+# --- Disposal helpers (used by the W01/W03/W06/W14 pass; globals set per State class) ---
+# A variable is State-owned when it is initialised at field level or declared as a field.
+state_owned() {
+  local var="$1" at_field_level="$2"
+  [[ "$at_field_level" = true ]] && return 0
+  [[ "$field_decls" == *"|$var|"* ]] && return 0
+  return 1
+}
+# Methods of the class in which "var.action(" occurs (space separated).
+released_where() {
+  printf '%s' "$release_index" | tr '|' '\n' | { grep -E "^$1:$2:" || true; } | cut -d: -f3 | sort -u | tr '\n' ' '
+}
+# A release is reachable when it sits in dispose() itself or in a method dispose() calls (one level).
+reachable_from_dispose() {
+  local m
+  for m in "$@"; do
+    [[ "$m" == "dispose" ]] && return 0
+    [[ "$dispose_calls" == *"|$m|"* ]] && return 0
+  done
+  return 1
+}
+release_msg() { # var kind action where
+  local list
+  if [[ -n "${4// /}" ]]; then
+    list=$(printf '%s' "$4" | sed -E 's/ +$//; s/ /(), /g')
+    printf "Resource '%s' (%s) is created by this State; '%s.%s()' exists only in %s(), which dispose() never calls (static heuristic: verify ownership and cleanup path)." "$1" "$2" "$1" "$3" "$list"
+  else
+    printf "Resource '%s' (%s) is created by this State but '%s.%s()' was not found in dispose() or in any method dispose() calls (static heuristic: verify ownership and cleanup path)." "$1" "$2" "$1" "$3"
+  fi
+}
+
 # 1. Scan Dart Files
 while IFS= read -r file; do
   [[ -z "$file" ]] && continue
@@ -106,6 +144,20 @@ while IFS= read -r file; do
   done < "$file"
   total_lines=${#lines[@]}
   file_content=$(cat "$file")
+
+  # Brace depth before/after every line (comment-only lines ignored); shared by K01 and the W pass
+  depth_before=()
+  depth_after=()
+  cur_d=0
+  for ((q=0; q<total_lines; q++)); do
+    depth_before[q]=$cur_d
+    if ! [[ "${lines[$q]}" =~ ^[[:space:]]*// ]]; then
+      q_open="${lines[$q]//[^{]/}"
+      q_close="${lines[$q]//[^\}]/}"
+      cur_d=$((cur_d + ${#q_open} - ${#q_close}))
+    fi
+    depth_after[q]=$cur_d
+  done
 
   in_build_or_paint=false
   brace_depth=0
@@ -138,78 +190,79 @@ while IFS= read -r file; do
 
     # K01: Unprotected BuildContext across async gap
     if [[ "$line" =~ (^|[[:space:]])await[[:space:]]+ ]]; then
-      local_depth=0
+      # Enclosing function body = nearest preceding block opener that is not control flow
+      # and sits shallower than the await. The scan stops where that body closes, so a
+      # guard placed before the await (or in a sibling block) never counts.
+      await_depth=${depth_before[$i]}
+      body_depth=-1
+      for ((h=i; h>=0; h--)); do
+        if (( depth_after[h] > depth_before[h] )) && (( depth_before[h] < await_depth )); then
+          h_line="${lines[$h]}"
+          if ! [[ "$h_line" =~ ^[[:space:]]*(if|else|for|while|do|switch|try|catch|finally|case|default|\})([^A-Za-z0-9_]|$) ]]; then
+            body_depth=$((depth_before[h] + 1))
+            break
+          fi
+        fi
+      done
+      (( body_depth < 0 )) && body_depth=0
+
       in_mounted_if=false
       mounted_if_depth=0
       pending_neg_mounted_guard=false
       pending_neg_depth=0
       guarded=false
 
-      for ((j=i+1; j<i+60 && j<total_lines; j++)); do
+      for ((j=i+1; j<total_lines; j++)); do
         f_line="${lines[$j]}"
         f_line_num=$((j + 1))
+        f_before=${depth_before[$j]}
+        f_after=${depth_after[$j]}
 
-        # Skip comment lines
+        if (( f_before < body_depth )); then
+          break
+        fi
         if [[ "$f_line" =~ ^[[:space:]]*// ]]; then
           continue
         fi
 
-        # Check for new method or class declaration boundary
-        if [[ "$f_line" =~ ^[[:space:]]*(@override|void[[:space:]]+|Widget[[:space:]]+|class[[:space:]]+) ]] && (( local_depth <= 0 )); then
-          break
+        if [[ "$in_mounted_if" = true ]] && (( f_before < mounted_if_depth )); then
+          in_mounted_if=false
+        fi
+        if [[ "$pending_neg_mounted_guard" = true ]] && (( f_before < pending_neg_depth )); then
+          pending_neg_mounted_guard=false
         fi
 
-        # Early exit mounted guard on single line: if (!mounted) return; or if (!context.mounted) { return; }
+        # Early-exit guard on one line: if (!mounted) return;  /  if (!context.mounted) { return; }
         if [[ "$f_line" =~ if[[:space:]]*\([[:space:]]*![[:space:]]*(context\.)?mounted[[:space:]]*\)[[:space:]]*(\{[[:space:]]*)?(return|throw) ]]; then
           guarded=true
           break
         fi
 
-        # Multiline if (!mounted) { ... return; } tracking
-        if [[ "$f_line" =~ if[[:space:]]*\([[:space:]]*![[:space:]]*(context\.)?mounted[[:space:]]*\)[[:space:]]*\{ ]]; then
+        # Multi-line if (!mounted) { ... return; }
+        if [[ "$f_line" =~ if[[:space:]]*\([[:space:]]*![[:space:]]*(context\.)?mounted[[:space:]]*\)[[:space:]]*\{ ]] && (( f_after > f_before )); then
           pending_neg_mounted_guard=true
-          pending_neg_depth=$((local_depth + 1))
-        fi
-
-        # If inside multiline if (!mounted) { ... }, check for return/throw
-        if [[ "$pending_neg_mounted_guard" = true ]] && [[ "$f_line" =~ (return|throw) ]]; then
+          pending_neg_depth=$f_after
+        elif [[ "$pending_neg_mounted_guard" = true ]] && [[ "$f_line" =~ (^|[^A-Za-z0-9_])(return|throw)([^A-Za-z0-9_]|$) ]]; then
           guarded=true
           break
         fi
 
-        # Track if (mounted) or if (context.mounted) block scope
-        if [[ "$f_line" =~ if[[:space:]]*\([[:space:]]*(context\.)?mounted[[:space:]]*\)[[:space:]]*\{ ]]; then
-          in_mounted_if=true
-          mounted_if_depth=$((local_depth + 1))
+        # Positive guard: if (mounted) ... (same line) or if (mounted) { ... } (block)
+        line_guarded=false
+        if [[ "$f_line" =~ if[[:space:]]*\([[:space:]]*(context\.)?mounted[[:space:]]*\) ]]; then
+          line_guarded=true
+          if (( f_after > f_before )); then
+            in_mounted_if=true
+            mounted_if_depth=$f_after
+          fi
         fi
 
-        # Track brace depth relative to the await statement
-        f_open="${f_line//[^{]/}"
-        f_close="${f_line//[^\}]/}"
-        local_depth=$((local_depth + ${#f_open} - ${#f_close}))
-
-        # If we exited the block where if (mounted) was guarding
-        if [[ "$in_mounted_if" = true ]] && (( local_depth < mounted_if_depth )); then
-          in_mounted_if=false
-        fi
-
-        # If we exited the block where if (!mounted) was pending without return
-        if [[ "$pending_neg_mounted_guard" = true ]] && (( local_depth < pending_neg_depth )); then
-          pending_neg_mounted_guard=false
-        fi
-
-        # If brace depth dropped below 0, we exited the enclosing block/method containing await
-        if (( local_depth < 0 )); then
-          break
-        fi
-
-        # Dangerous usages after await
         danger_op=""
         if [[ "$f_line" =~ setState[[:space:]]*\( ]]; then
           danger_op="setState()"
-        elif [[ "$f_line" =~ Navigator\.(push|pop|of)[[:space:]]*\( ]]; then
+        elif [[ "$f_line" =~ Navigator\.(push|pop|of|maybePop|pushNamed|pushReplacement|popUntil)[[:space:]]*\( ]]; then
           danger_op="Navigator"
-        elif [[ "$f_line" =~ (showDialog|showModalBottomSheet)[[:space:]]*\( ]]; then
+        elif [[ "$f_line" =~ (showDialog|showModalBottomSheet|showBottomSheet|showMenu|showDatePicker|showTimePicker)(\<[^\>]*\>)?[[:space:]]*\( ]]; then
           danger_op="Dialog"
         elif [[ "$f_line" =~ (ScaffoldMessenger\.of|Theme\.of|MediaQuery\.of)[[:space:]]*\([[:space:]]*context ]]; then
           danger_op="Context theme/messenger lookup"
@@ -217,10 +270,14 @@ while IFS= read -r file; do
           danger_op="context extension method"
         fi
 
-        if [[ -n "$danger_op" && "$guarded" = false && "$in_mounted_if" = false ]]; then
+        if [[ -n "$danger_op" && "$guarded" = false && "$in_mounted_if" = false && "$line_guarded" = false ]]; then
           if ! is_suppressed "$f_line_num" "K01"; then
-            add_finding "$file" "$f_line_num" "CRITICAL" "K01" "BuildContext ($danger_op) used across async gap without 'if (!context.mounted) return;' guard."
+            add_finding "$file" "$f_line_num" "CRITICAL" "K01" "BuildContext ($danger_op) used after an await in the same function with no mounted guard in between (static heuristic: scans this function body only)."
           fi
+          break
+        fi
+
+        if (( f_after < body_depth )); then
           break
         fi
       done
@@ -321,40 +378,65 @@ while IFS= read -r file; do
       s_line="${lines[$s]}"
       if [[ "$s_line" =~ class[[:space:]]+([A-Za-z0-9_]+)[[:space:]]+extends[[:space:]]+State\< ]]; then
         state_class_start=$s
-        state_depth=0
         state_class_end=$total_lines
-        class_body=""
-
-        # Find the end of this State class and collect its body (release calls are searched in the whole class)
-        for ((k=s; k<total_lines; k++)); do
-          k_line="${lines[$k]}"
-          k_open="${k_line//[^{]/}"
-          k_close="${k_line//[^\}]/}"
-          class_body+="$k_line"$'\n'
-          state_depth=$((state_depth + ${#k_open} - ${#k_close}))
-          if (( state_depth == 0 )) && [[ "$k_line" =~ \} ]]; then
+        class_base=${depth_before[$s]}
+        for ((k=s+1; k<total_lines; k++)); do
+          if (( depth_after[k] <= class_base )); then
             state_class_end=$k
             break
           fi
         done
 
-        # Scan for resources created anywhere in this State class (fields, initState, didChangeDependencies, methods)
-        for ((m=state_class_start; m<=state_class_end; m++)); do
+        # Pass 1: field declarations, calls made from dispose(), and every release call with its enclosing method
+        field_decls="|"
+        dispose_calls="|"
+        release_index="|"
+        cur_method=""
+        for ((m=state_class_start+1; m<=state_class_end; m++)); do
+          m_line="${lines[$m]}"
+          [[ "$m_line" =~ ^[[:space:]]*// ]] && continue
+          if (( depth_before[m] == class_base + 1 )); then
+            if [[ "$m_line" =~ ([A-Za-z_][A-Za-z0-9_]*)[[:space:]]*\( ]]; then
+              cur_method="${BASH_REMATCH[1]}"
+            fi
+            rest="$m_line"
+            while [[ "$rest" =~ ([A-Za-z_][A-Za-z0-9_]*)[[:space:]]*(=|\;)(.*)$ ]]; do
+              field_decls+="${BASH_REMATCH[1]}|"
+              rest="${BASH_REMATCH[3]}"
+            done
+          fi
+          if [[ "$cur_method" == "dispose" ]]; then
+            rest="$m_line"
+            while [[ "$rest" =~ ([A-Za-z_][A-Za-z0-9_]*)[[:space:]]*\((.*)$ ]]; do
+              dispose_calls+="${BASH_REMATCH[1]}|"
+              rest="${BASH_REMATCH[2]}"
+            done
+          fi
+          rest="$m_line"
+          while [[ "$rest" =~ ([A-Za-z_][A-Za-z0-9_]*)(\?\.|\.)(dispose|cancel|close)[[:space:]]*\((.*)$ ]]; do
+            release_index+="${BASH_REMATCH[1]}:${BASH_REMATCH[3]}:$cur_method|"
+            rest="${BASH_REMATCH[4]}"
+          done
+        done
+
+        # Pass 2: resources created by this State (field initializer, or assignment to a declared field)
+        for ((m=state_class_start+1; m<=state_class_end; m++)); do
           m_line="${lines[$m]}"
           m_line_num=$((m + 1))
-
-          if [[ "$m_line" =~ ^[[:space:]]*// ]]; then
-            continue
-          fi
+          [[ "$m_line" =~ ^[[:space:]]*// ]] && continue
+          at_field_level=false
+          (( depth_before[m] == class_base + 1 )) && at_field_level=true
 
           # W01: Controllers
           for ctrl in "${controllers[@]}"; do
             if [[ "$m_line" =~ (^|[^A-Za-z0-9_])([A-Za-z0-9_]+)[[:space:]]*=[[:space:]]*(new[[:space:]]+)?$ctrl($|[^A-Za-z0-9_]) ]]; then
               var_name="${BASH_REMATCH[2]}"
-              if [[ -n "$var_name" && "$var_name" != "new" ]]; then
-                if ! printf '%s' "$class_body" | grep -Eqs "(^|[^A-Za-z0-9_])$var_name\.dispose[[:space:]]*\("; then
+              if [[ -n "$var_name" && "$var_name" != "new" ]] && state_owned "$var_name" "$at_field_level"; then
+                where=$(released_where "$var_name" dispose)
+                # shellcheck disable=SC2086
+                if ! reachable_from_dispose $where; then
                   if ! is_suppressed "$m_line_num" "W01"; then
-                    add_finding "$file" "$m_line_num" "CRITICAL" "W01" "Resource '$var_name' ($ctrl) is instantiated in State but never disposed via '$var_name.dispose()' in dispose()."
+                    add_finding "$file" "$m_line_num" "CRITICAL" "W01" "$(release_msg "$var_name" "$ctrl" dispose "$where")"
                   fi
                 fi
               fi
@@ -364,10 +446,12 @@ while IFS= read -r file; do
           # W14: StreamController
           if [[ "$m_line" =~ (^|[^A-Za-z0-9_])([A-Za-z0-9_]+)[[:space:]]*=[[:space:]]*(new[[:space:]]+)?StreamController($|[^A-Za-z0-9_]) ]]; then
             var_name="${BASH_REMATCH[2]}"
-            if [[ -n "$var_name" && "$var_name" != "new" ]]; then
-              if ! printf '%s' "$class_body" | grep -Eqs "(^|[^A-Za-z0-9_])$var_name\.close[[:space:]]*\("; then
+            if [[ -n "$var_name" && "$var_name" != "new" ]] && state_owned "$var_name" "$at_field_level"; then
+              where=$(released_where "$var_name" close)
+              # shellcheck disable=SC2086
+              if ! reachable_from_dispose $where; then
                 if ! is_suppressed "$m_line_num" "W14"; then
-                  add_finding "$file" "$m_line_num" "CRITICAL" "W14" "Stream sink '$var_name' (StreamController) must be closed via '$var_name.close()' in dispose()."
+                  add_finding "$file" "$m_line_num" "CRITICAL" "W14" "$(release_msg "$var_name" StreamController close "$where")"
                 fi
               fi
             fi
@@ -377,10 +461,12 @@ while IFS= read -r file; do
           re_listen='(^|[^A-Za-z0-9_])([A-Za-z0-9_]+)[[:space:]]*=[^;]*\.listen[[:space:]]*\('
           if [[ "$m_line" =~ $re_listen ]]; then
             var_name="${BASH_REMATCH[2]}"
-            if [[ -n "$var_name" ]]; then
-              if ! printf '%s' "$class_body" | grep -Eqs "(^|[^A-Za-z0-9_])$var_name(\?\.|\.)cancel[[:space:]]*\("; then
+            if [[ -n "$var_name" ]] && state_owned "$var_name" "$at_field_level"; then
+              where=$(released_where "$var_name" cancel)
+              # shellcheck disable=SC2086
+              if ! reachable_from_dispose $where; then
                 if ! is_suppressed "$m_line_num" "W03"; then
-                  add_finding "$file" "$m_line_num" "CRITICAL" "W03" "StreamSubscription '$var_name' is active but never cancelled via '$var_name.cancel()' in dispose()."
+                  add_finding "$file" "$m_line_num" "CRITICAL" "W03" "$(release_msg "$var_name" StreamSubscription cancel "$where")"
                 fi
               fi
             fi
@@ -389,10 +475,12 @@ while IFS= read -r file; do
           # W06: Timer
           if [[ "$m_line" =~ (^|[^A-Za-z0-9_])([A-Za-z0-9_]+)[[:space:]]*=[[:space:]]*Timer(\.periodic)?[[:space:]]*\( ]]; then
             var_name="${BASH_REMATCH[2]}"
-            if [[ -n "$var_name" ]]; then
-              if ! printf '%s' "$class_body" | grep -Eqs "(^|[^A-Za-z0-9_])$var_name(\?\.|\.)cancel[[:space:]]*\("; then
+            if [[ -n "$var_name" ]] && state_owned "$var_name" "$at_field_level"; then
+              where=$(released_where "$var_name" cancel)
+              # shellcheck disable=SC2086
+              if ! reachable_from_dispose $where; then
                 if ! is_suppressed "$m_line_num" "W06"; then
-                  add_finding "$file" "$m_line_num" "CRITICAL" "W06" "Timer '$var_name' is running in event loop but never cancelled via '$var_name.cancel()' in dispose()."
+                  add_finding "$file" "$m_line_num" "CRITICAL" "W06" "$(release_msg "$var_name" Timer cancel "$where")"
                 fi
               fi
             fi

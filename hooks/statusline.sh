@@ -7,8 +7,11 @@
 # ==============================================================================
 input=$(cat)
 
-# 1. Chain Ponytail statusline & extract workspace dir in a single Node process
+# 1. Chain Ponytail statusline & extract workspace dir in a single Node process.
+#    Without node the [FLUTTER] badge still works (plain-shell JSON extraction); only the
+#    optional Ponytail chaining is skipped.
 claude_dir="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+if command -v node >/dev/null 2>&1; then
 meta=$(printf '%s' "$input" | node -e '
   const fs = require("fs");
   const path = require("path");
@@ -36,6 +39,11 @@ meta=$(printf '%s' "$input" | node -e '
   } catch(e) {}
   process.stdout.write((pony || "-") + "\t" + (dir || "-"));
 ' "$claude_dir" 2>/dev/null || printf -- "-\t-")
+else
+  dir_fallback=$(printf '%s' "$input" | sed -nE 's/.*"current_dir"[[:space:]]*:[[:space:]]*"([^"]*)".*/\1/p' | head -n 1)
+  [ -z "$dir_fallback" ] && dir_fallback=$(printf '%s' "$input" | sed -nE 's/.*"cwd"[[:space:]]*:[[:space:]]*"([^"]*)".*/\1/p' | head -n 1)
+  meta=$(printf -- '-\t%s' "${dir_fallback:--}")
+fi
 
 pony="${meta%%	*}"
 dir="${meta#*	}"

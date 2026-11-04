@@ -311,7 +311,7 @@ if [[ -n "$PWSH_CMD" ]]; then
   ' "$pos_output" "$ps_pos" 2>&1)
   diff_pos_exit=$?
 
-  report_assert "Positive fixture parity: 20 findings with zero discrepancies in (severity, trapId, file, line, message)" $(( diff_pos_exit == 0 ? 1 : 0 )) "$diff_pos"
+  report_assert "Positive fixture parity: 25 findings with zero discrepancies in (severity, trapId, file, line, message)" $(( diff_pos_exit == 0 ? 1 : 0 )) "$diff_pos"
 
   # shellcheck disable=SC2016
   diff_neg=$(node -e '

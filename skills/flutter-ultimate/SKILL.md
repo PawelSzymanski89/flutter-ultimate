@@ -2,8 +2,8 @@
 name: flutter-ultimate
 description: >
   Elevates Flutter and Dart engineering to principal architectural standards.
-  Enforces 60/120 FPS render pipelines, eliminates 40 performance traps (P1-P40),
-  20 memory leaks (W1-W20), and 14 BuildContext traps (K1-K14). Guides modern
+  Targets 60/120 FPS render pipelines and catalogs 40 performance traps (P1-P40),
+  20 memory-leak patterns (W1-W20), and 14 BuildContext traps (K1-K14). Guides modern
   Dart 3 sealed-class architectures, 4-tier state management, physics animations,
   and native GDPR privacy defaults. Use when planning Flutter features, writing
   or refactoring Flutter UI and logic, optimizing frame rates, fixing memory leaks,
@@ -243,16 +243,16 @@ powershell -ExecutionPolicy Bypass -File scripts/audit-flutter.ps1 -Json
 3. Fix all **HIGH** performance traps: extract large builder methods into separate `StatelessWidget` classes; insert `const` constructors; wrap isolated animations in `RepaintBoundary`.
 4. Re-run `scripts/audit-flutter.ps1` or `scripts/audit-flutter.sh` until exit code is 0.
 
-### Step 5: Dedicated Slash Commands (/flutter-review & /flutter-audit)
-Two standard slash commands provide targeted, ergonomic workflows across Claude Code environments:
+### Step 5: Dedicated Slash Commands (/flutter-ultimate:flutter-review & /flutter-ultimate:flutter-audit)
+Two slash commands ship with the plugin. Claude Code prefixes plugin commands with the plugin name, so they are invoked exactly as shown:
 
-- **`/flutter-review`** (Working Tree & PR Diff Review):
+- **`/flutter-ultimate:flutter-review`** (Working Tree & PR Diff Review):
   - Focuses on uncommitted changes, staged diffs, or PR branches.
   - Verifies 60/120 FPS pipeline, async `BuildContext` safety, disposal pairing, and Dart 3 idioms.
   - Outputs a structured report: What change does, Must-fix (Critical/High), Should-fix (Medium), Nice-to-have (Low), Verdict (Ship/Request Changes), 60/120 FPS Status, Disposal Status.
   - Source definition: `commands/flutter-review.md`.
 
-- **`/flutter-audit`** (Full Repository Static & Architecture Audit):
+- **`/flutter-ultimate:flutter-audit`** (Full Repository Static & Architecture Audit):
   - Executes deterministic static analysis (`scripts/audit-flutter.ps1` / `scripts/audit-flutter.sh`).
   - Audits configuration health (`pubspec.yaml` linter currency, `analysis_options.yaml` strict compiler flags).
   - Scans native GDPR/RODO manifest toggles (`AndroidManifest.xml`, `Info.plist`).

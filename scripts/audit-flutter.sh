@@ -754,6 +754,7 @@ if [[ "$SARIF_MODE" = true ]]; then
     IFS="|" read -r sev trap_id rel_file line msg <<< "$f"
     [[ "|$rule_ids" == *"|$trap_id|"* ]] || rule_ids+="$trap_id|"
   done
+  # shellcheck disable=SC2016
   printf '{"version":"2.1.0","$schema":"https://json.schemastore.org/sarif-2.1.0.json","runs":[{"tool":{"driver":{"name":"flutter-ultimate","version":"%s","informationUri":"https://github.com/PawelSzymanski89/flutter-ultimate","rules":[' "$SCRIPT_VERSION"
   first=true
   IFS='|' read -r -a rule_arr <<< "${rule_ids%|}"

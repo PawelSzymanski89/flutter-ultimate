@@ -53,7 +53,7 @@ The **Strict Disposal Pairing Rule** is the foundational invariant of Flutter me
 
 ---
 
-## 2. The 20 Critical Memory Leaks (W1 – W20)
+## 2. The 21 Critical Memory Leaks (W1 – W21)
 
 ### W1. `AnimationController` Without `dispose()`
 * **Severity**: CRITICAL
@@ -187,6 +187,7 @@ void dispose() {
 
 ### W5. Multiple Listener Registrations in `didChangeDependencies` or `build`
 * **Severity**: HIGH
+* **Detector**: `W05` reports `.listen()` / `.addListener()` in `didChangeDependencies()` unless the same method cancels / removes the previous registration, uses `??=` or a `null` check, or runs once behind a flag.
 * **Mechanism**: `didChangeDependencies` executes on initial mount and whenever inherited widgets change. `build()` runs on every frame invalidation. Calling `addListener()` inside these methods without tearing down previous listeners causes exponential listener duplication.
 * **Remediation**:
 ```dart
@@ -577,6 +578,32 @@ ChangeNotifierProvider<CartModel>(
   create: (context) => CartModel(), // Automatically calls .dispose() when unmounted
   child: const CartView(),
 );
+```
+
+### W21. `SingleTickerProviderStateMixin` Asked for a Second `Ticker`
+* **Severity**: CRITICAL
+* **Mechanism**: `SingleTickerProviderStateMixin.createTicker` keeps one `_ticker` field and never clears it. In the Flutter 3.47 SDK the method asserts that the field is still `null`, so a second `AnimationController(vsync: this)`, a `TabController(vsync: this)` next to an animation, or a controller that is disposed and recreated throws "`$runtimeType` is a SingleTickerProviderStateMixin but multiple tickers were created" in debug and profile builds. In release the assert is compiled out, the new `Ticker` overwrites the field, and the first ticker is no longer muted by `TickerMode` or disposed with the mixin.
+* **Detector**: `W21` counts `vsync: this` inside the `State` class when the class header mixes in `SingleTickerProviderStateMixin`.
+* **Remediation**:
+```dart
+// BAD
+class _CardState extends State<Card> with SingleTickerProviderStateMixin {
+  late final AnimationController _fade = AnimationController(vsync: this, duration: const Duration(milliseconds: 200));
+  late final AnimationController _slide = AnimationController(vsync: this, duration: const Duration(milliseconds: 300));
+}
+
+// GOOD: one mixin that vends any number of tickers, same dispose() pairing (W1)
+class _CardState extends State<Card> with TickerProviderStateMixin {
+  late final AnimationController _fade = AnimationController(vsync: this, duration: const Duration(milliseconds: 200));
+  late final AnimationController _slide = AnimationController(vsync: this, duration: const Duration(milliseconds: 300));
+
+  @override
+  void dispose() {
+    _fade.dispose();
+    _slide.dispose();
+    super.dispose();
+  }
+}
 ```
 
 ---

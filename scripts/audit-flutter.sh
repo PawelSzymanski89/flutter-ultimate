@@ -5,13 +5,23 @@
 # ==============================================================================
 set -euo pipefail
 
+SCRIPT_VERSION="1.8.0"
+
+# usage [code]: --help prints to stdout and exits 0; CLI errors print to stderr and exit 2.
 usage() {
-  echo "Usage: $0 [--target <dir>] [--json] [--fail-on CRITICAL|HIGH|MEDIUM|LOW] [--strict]" >&2
-  exit 2
+  local code="${1:-2}"
+  local text="Usage: $0 [--target <dir>] [--json | --sarif] [--fail-on CRITICAL|HIGH|MEDIUM|LOW] [--strict]"
+  if (( code == 0 )); then
+    echo "$text"
+  else
+    echo "$text" >&2
+  fi
+  exit "$code"
 }
 
 TARGET_PATH="."
 JSON_MODE=false
+SARIF_MODE=false
 STRICT_MODE=false
 FAIL_ON="CRITICAL"
 
@@ -29,6 +39,10 @@ while [[ $# -gt 0 ]]; do
       JSON_MODE=true
       shift
       ;;
+    --sarif)
+      SARIF_MODE=true
+      shift
+      ;;
     --strict)
       STRICT_MODE=true
       shift
@@ -42,7 +56,7 @@ while [[ $# -gt 0 ]]; do
       shift 2
       ;;
     -h|--help)
-      usage
+      usage 0
       ;;
     -*)
       echo "Error: Unknown option '$1'" >&2
@@ -59,6 +73,11 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+if [[ "$JSON_MODE" = true && "$SARIF_MODE" = true ]]; then
+  echo "Error: --json and --sarif are mutually exclusive" >&2
+  usage
+fi
 
 if [[ ! -d "$TARGET_PATH" ]]; then
   echo "Error: Target directory '$TARGET_PATH' does not exist" >&2
@@ -308,7 +327,7 @@ while IFS= read -r file; do
           danger_op="Dialog"
         elif [[ "$f_line" =~ (ScaffoldMessenger\.of|Theme\.of|MediaQuery\.of)[[:space:]]*\([[:space:]]*context ]]; then
           danger_op="Context theme/messenger lookup"
-        elif [[ "$f_line" =~ (^|[^A-Za-z0-9_.])context\.(read|watch|select|push|pop|go) ]]; then
+        elif [[ "$f_line" =~ (^|[^A-Za-z0-9_.])context\.(read|watch|select|push|pop|go)[A-Za-z0-9_]*[[:space:]]*[\<\(] ]]; then
           danger_op="context extension method"
         fi
 
@@ -528,11 +547,106 @@ while IFS= read -r file; do
             fi
           fi
         done
+
+        # W21: SingleTickerProviderStateMixin vends exactly one Ticker. The class header may wrap, so read it up to its "{".
+        class_header=""
+        for ((h=state_class_start; h<=state_class_end; h++)); do
+          class_header+="${lines[$h]} "
+          [[ "${lines[$h]}" == *"{"* ]] && break
+        done
+        if [[ "$class_header" =~ (^|[^A-Za-z0-9_])SingleTickerProviderStateMixin($|[^A-Za-z0-9_]) ]]; then
+          vsync_lines=""
+          vsync_count=0
+          for ((m=state_class_start+1; m<=state_class_end; m++)); do
+            m_line="${lines[$m]}"
+            [[ "$m_line" =~ ^[[:space:]]*// ]] && continue
+            if [[ "$m_line" =~ (^|[^A-Za-z0-9_])vsync:[[:space:]]*this($|[^A-Za-z0-9_]) ]]; then
+              vsync_count=$((vsync_count + 1))
+              vsync_lines+="$((m + 1)) "
+              if (( vsync_count == 2 )); then
+                second_vsync_line=$((m + 1))
+              fi
+            fi
+          done
+          if (( vsync_count >= 2 )); then
+            if ! is_suppressed "$second_vsync_line" "W21"; then
+              add_finding "$file" "$second_vsync_line" "CRITICAL" "W21" "State mixes in SingleTickerProviderStateMixin but passes 'vsync: this' $vsync_count times (lines ${vsync_lines% }). The second Ticker throws 'multiple tickers were created' in debug and silently replaces the first in release. Use TickerProviderStateMixin."
+            fi
+          fi
+        fi
+
+        # W05: listen()/addListener() in didChangeDependencies() re-registers on every dependency change unless the previous registration is torn down in the same method.
+        ddc_start=-1
+        ddc_end=-1
+        for ((m=state_class_start+1; m<=state_class_end; m++)); do
+          if (( depth_before[m] == class_base + 1 )) && [[ "${lines[$m]}" =~ (^|[^A-Za-z0-9_])didChangeDependencies[[:space:]]*\( ]]; then
+            ddc_start=$m
+            ddc_end=$state_class_end
+            for ((k=m; k<=state_class_end; k++)); do
+              if (( k > m )) && (( depth_after[k] <= class_base + 1 )); then
+                ddc_end=$k
+                break
+              fi
+            done
+            break
+          fi
+        done
+        if (( ddc_start >= 0 )); then
+          ddc_body=""
+          for ((m=ddc_start; m<=ddc_end; m++)); do
+            [[ "${lines[$m]}" =~ ^[[:space:]]*// ]] && continue
+            ddc_body+="${lines[$m]}"$'\n'
+          done
+          # A run-once guard (if (!_done) { _done = true; ... } or if (_first) { _first = false; ... }) makes the method body execute once.
+          ddc_once=false
+          if [[ "$ddc_body" =~ if[[:space:]]*\([[:space:]]*\![[:space:]]*([A-Za-z_][A-Za-z0-9_]*)[[:space:]]*\) ]]; then
+            flag="${BASH_REMATCH[1]}"
+            [[ "$ddc_body" =~ (^|[^A-Za-z0-9_])${flag}[[:space:]]*=[[:space:]]*true ]] && ddc_once=true
+          fi
+          if [[ "$ddc_body" =~ if[[:space:]]*\([[:space:]]*([A-Za-z_][A-Za-z0-9_]*)[[:space:]]*\) ]]; then
+            flag="${BASH_REMATCH[1]}"
+            [[ "$ddc_body" =~ (^|[^A-Za-z0-9_])${flag}[[:space:]]*=[[:space:]]*false ]] && ddc_once=true
+          fi
+          [[ "$ddc_once" = true ]] && ddc_end=$((ddc_start - 1))
+          for ((m=ddc_start; m<=ddc_end; m++)); do
+            m_line="${lines[$m]}"
+            m_line_num=$((m + 1))
+            [[ "$m_line" =~ ^[[:space:]]*// ]] && continue
+            re_listen='(^|[^A-Za-z0-9_])([A-Za-z0-9_]+)[[:space:]]*=[^;]*\.listen[[:space:]]*\('
+            if [[ "$m_line" =~ $re_listen ]]; then
+              var_name="${BASH_REMATCH[2]}"
+              if [[ -n "$var_name" ]] && state_owned "$var_name" false; then
+                re_cancel="(^|[^A-Za-z0-9_])$var_name(\?\.|!\.|\.)cancel[[:space:]]*\("
+                re_null="(^|[^A-Za-z0-9_])${var_name}[[:space:]]*[!=]=[[:space:]]*null|null[[:space:]]*[!=]=[[:space:]]*${var_name}($|[^A-Za-z0-9_])"
+                if ! [[ "$ddc_body" =~ $re_cancel ]] && ! [[ "$ddc_body" =~ $re_null ]]; then
+                  if ! is_suppressed "$m_line_num" "W05"; then
+                    add_finding "$file" "$m_line_num" "HIGH" "W05" "Subscription '$var_name' is opened in didChangeDependencies() without cancelling the previous one in the same method; didChangeDependencies() runs again on every dependency change, so the listener is registered repeatedly (static heuristic: cancel first, or use ??= / a null check)."
+                  fi
+                fi
+              fi
+            fi
+            if [[ "$m_line" =~ \)[[:space:]]*\.addListener[[:space:]]*\( ]]; then
+              # Receiver is a call result (context.read<T>().addListener, Listenable.merge([...]).addListener): nothing to pair a removeListener() with.
+              if ! is_suppressed "$m_line_num" "W05"; then
+                add_finding "$file" "$m_line_num" "HIGH" "W05" "addListener() is called on a call result in didChangeDependencies(); the previous listener cannot be removed because the receiver is not kept, and didChangeDependencies() runs again on every dependency change (static heuristic: keep the notifier in a field, remove the old listener, then add)."
+              fi
+            elif [[ "$m_line" =~ (^|[^A-Za-z0-9_])([A-Za-z0-9_.]+)\.addListener[[:space:]]*\( ]]; then
+              recv="${BASH_REMATCH[2]}"
+              recv_re=$(printf '%s' "$recv" | sed 's/\./\\./g')
+              re_remove="(^|[^A-Za-z0-9_])$recv_re\.removeListener[[:space:]]*\("
+              if ! [[ "$ddc_body" =~ $re_remove ]]; then
+                if ! is_suppressed "$m_line_num" "W05"; then
+                  add_finding "$file" "$m_line_num" "HIGH" "W05" "'$recv.addListener()' is called in didChangeDependencies() without a matching removeListener() in the same method; didChangeDependencies() runs again on every dependency change, so the listener is added repeatedly (static heuristic: remove the previous listener first)."
+                fi
+              fi
+            fi
+          done
+        fi
       fi
     done
   fi
 
-done < <(find "$TARGET_DIR" -type f -name "*.dart" 2>/dev/null || true)
+done < <(find "$TARGET_DIR" \( -name build -o -name .dart_tool -o -name .git \) -prune -o -type f -name "*.dart" -print 2>/dev/null || true)
 
 # 2. Check pubspec.yaml for Up-to-Date Linter Package
 PUBSPEC_PATH="$TARGET_DIR/pubspec.yaml"
@@ -605,7 +719,61 @@ if [[ -f "$IOS_PLIST" ]]; then
 fi
 
 # 4. Output Findings
-if [[ "$JSON_MODE" = true ]]; then
+rule_desc() {
+  case "$1" in
+    K01) echo "BuildContext used after an await with no mounted guard in between" ;;
+    W01) echo "Controller created by a State without dispose() reachable from dispose()" ;;
+    W03) echo "StreamSubscription without cancel() reachable from dispose()" ;;
+    W05) echo "listen()/addListener() in didChangeDependencies() without tearing down the previous registration" ;;
+    W06) echo "Timer without cancel() reachable from dispose()" ;;
+    W14) echo "StreamController without close() reachable from dispose()" ;;
+    W21) echo "SingleTickerProviderStateMixin used for more than one Ticker" ;;
+    P03) echo "Helper _buildX() method instead of a StatelessWidget" ;;
+    P07) echo "Broad MediaQuery.of(context) dependency" ;;
+    P12) echo "Future/Stream created inline in FutureBuilder/StreamBuilder inside build()" ;;
+    P19) echo "shrinkWrap: true" ;;
+    P21) echo "IntrinsicHeight/IntrinsicWidth speculative layout" ;;
+    P26) echo "Opacity with a fractional value" ;;
+    P27) echo "ClipRRect" ;;
+    P32) echo "Paint or Path allocated inside build()/paint()" ;;
+    LINT-01) echo "No linter package and no analysis_options.yaml include" ;;
+    LINT-02) echo "Outdated flutter_lints" ;;
+    GDPR-01) echo "AndroidManifest: firebase_analytics_collection_enabled not false" ;;
+    GDPR-02) echo "AndroidManifest: firebase_crashlytics_collection_enabled not false" ;;
+    GDPR-03) echo "Info.plist: FIREBASE_ANALYTICS_COLLECTION_ENABLED not false" ;;
+    GDPR-04) echo "Info.plist: FirebaseCrashlyticsCollectionEnabled not false" ;;
+    *) echo "$1" ;;
+  esac
+}
+sarif_level() { case "$1" in CRITICAL) echo error ;; HIGH|MEDIUM) echo warning ;; *) echo note ;; esac; }
+
+if [[ "$SARIF_MODE" = true ]]; then
+  # SARIF 2.1.0 (GitHub code scanning): one run, rules = the trap ids that occurred, results in scan order.
+  rule_ids=""
+  for f in "${FINDINGS[@]+"${FINDINGS[@]}"}"; do
+    IFS="|" read -r sev trap_id rel_file line msg <<< "$f"
+    [[ "|$rule_ids" == *"|$trap_id|"* ]] || rule_ids+="$trap_id|"
+  done
+  printf '{"version":"2.1.0","$schema":"https://json.schemastore.org/sarif-2.1.0.json","runs":[{"tool":{"driver":{"name":"flutter-ultimate","version":"%s","informationUri":"https://github.com/PawelSzymanski89/flutter-ultimate","rules":[' "$SCRIPT_VERSION"
+  first=true
+  IFS='|' read -r -a rule_arr <<< "${rule_ids%|}"
+  for r in "${rule_arr[@]+"${rule_arr[@]}"}"; do
+    [[ -z "$r" ]] && continue
+    [[ "$first" = false ]] && printf ','
+    first=false
+    printf '{"id":"%s","shortDescription":{"text":"%s"}}' "$(json_escape "$r")" "$(json_escape "$(rule_desc "$r")")"
+  done
+  printf ']}},"results":['
+  first=true
+  for f in "${FINDINGS[@]+"${FINDINGS[@]}"}"; do
+    IFS="|" read -r sev trap_id rel_file line msg <<< "$f"
+    [[ "$first" = false ]] && printf ','
+    first=false
+    printf '{"ruleId":"%s","level":"%s","message":{"text":"%s"},"locations":[{"physicalLocation":{"artifactLocation":{"uri":"%s"},"region":{"startLine":%d}}}]}' \
+      "$(json_escape "$trap_id")" "$(sarif_level "$sev")" "$(json_escape "$msg")" "$(json_escape "${rel_file//\\//}")" "$line"
+  done
+  printf ']}]}\n'
+elif [[ "$JSON_MODE" = true ]]; then
   if (( ${#FINDINGS[@]} == 0 )); then
     echo "[]"
     exit 0

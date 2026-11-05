@@ -129,7 +129,7 @@ try {
 
     $ExpectedTraps = @(
         "P03", "P32", "P07", "P12", "P19", "P21", "P26", "P27",
-        "K01", "W01", "W03", "W06", "W14",
+        "K01", "W01", "W03", "W05", "W06", "W14", "W21",
         "LINT-02", "GDPR-01", "GDPR-02", "GDPR-03", "GDPR-04"
     )
 
@@ -162,6 +162,27 @@ try {
 } catch {
     Report-Assert "Single finding JSON parse" $false $_.Exception.Message
 }
+
+# 4b. SARIF output contract
+Write-Host "`n[4b/6] Testing SARIF output..." -ForegroundColor Cyan
+$PluginVersion = (Get-Content (Join-Path $ProjectRoot ".claude-plugin\plugin.json") -Raw | ConvertFrom-Json).version
+$SarifPos = (& $AuditPs1 -Target $PositiveDir -Sarif 2>&1) -join "`n"
+try {
+    $SarifDoc = $SarifPos | ConvertFrom-Json
+    $Run = $SarifDoc.runs[0]
+    $RuleIds = @($Run.tool.driver.rules | ForEach-Object { $_.id })
+    $AllRuled = $true
+    foreach ($r in $Run.results) { if ($RuleIds -notcontains $r.ruleId) { $AllRuled = $false } }
+    Report-Assert "Positive fixture -Sarif is SARIF 2.1.0 with one result per JSON finding and rules for every ruleId" ($SarifDoc.version -eq "2.1.0" -and @($Run.results).Count -eq @($PosJson).Count -and $AllRuled) "version=$($SarifDoc.version) results=$(@($Run.results).Count) json=$(@($PosJson).Count)"
+    Report-Assert "SARIF driver.version equals plugin.json version" ($Run.tool.driver.version -eq $PluginVersion) "driver=$($Run.tool.driver.version) plugin=$PluginVersion"
+} catch {
+    Report-Assert "Positive fixture -Sarif parses" $false $_.Exception.Message
+}
+$SarifNeg = ((& $AuditPs1 -Target (Join-Path $ProjectRoot "test\fixtures\negative") -Sarif 2>&1) -join "`n" | ConvertFrom-Json)
+Report-Assert "Negative fixture -Sarif is a valid document with empty results" (@($SarifNeg.runs[0].results).Count -eq 0)
+$null = & $AuditPs1 -Target $SingleDir -Json -Sarif 2>&1
+$BothModesExit = $LASTEXITCODE
+Report-Assert "-Json -Sarif together exit with code 2" ($BothModesExit -eq 2) "Actual exit code: $BothModesExit"
 
 # 5. Test Negative & Suppression Fixtures
 Write-Host "`n[5/6] Testing Negative & Suppression Fixtures..." -ForegroundColor Cyan
@@ -220,7 +241,7 @@ if ($BashExe) {
             }
         } | Sort-Object trapId, file, line
 
-        Report-Assert "Both scanners report identical findings count (25)" ($PsNorm.Count -eq $BashNorm.Count -and $PsNorm.Count -eq 25) "PS: $($PsNorm.Count), Bash: $($BashNorm.Count)"
+        Report-Assert "Both scanners report identical findings count (31)" ($PsNorm.Count -eq $BashNorm.Count -and $PsNorm.Count -eq 31) "PS: $($PsNorm.Count), Bash: $($BashNorm.Count)"
 
         $Diff = Compare-Object $PsNorm $BashNorm -Property severity, trapId, file, line, message
         Report-Assert "Zero discrepancies in severity, trapId, file, line, message" ($null -eq $Diff)
@@ -234,6 +255,24 @@ if ($BashExe) {
         $BashSingle = & $BashExe $BashAuditShPath --target ((Join-Path $ProjectRoot "test\fixtures\single") -replace '\\', '/') --json 2>&1
         $BashSingleJson = $BashSingle | ConvertFrom-Json
         Report-Assert "Single finding fixture parity: exactly 1 matching record" ($SingleJson.Count -eq 1 -and $BashSingleJson.Count -eq 1 -and $SingleJson[0].trapId -eq $BashSingleJson[0].trapId)
+
+        $BashSarif = ((& $BashExe $BashAuditShPath --target $BashPosPath --sarif 2>&1) -join "`n" | ConvertFrom-Json)
+        $PsSarifDoc = $SarifPos | ConvertFrom-Json
+        $SarifNormalize = {
+            param($Doc)
+            @($Doc.runs[0].results | ForEach-Object {
+                [PSCustomObject]@{
+                    ruleId = $_.ruleId; level = $_.level; message = $_.message.text
+                    uri = ($_.locations[0].physicalLocation.artifactLocation.uri -replace '\\', '/')
+                    line = [int]$_.locations[0].physicalLocation.region.startLine
+                }
+            })
+        }
+        $PsSarifNorm = & $SarifNormalize $PsSarifDoc
+        $BashSarifNorm = & $SarifNormalize $BashSarif
+        $SarifDiff = Compare-Object $PsSarifNorm $BashSarifNorm -Property ruleId, level, message, uri, line
+        $RulesSame = (($PsSarifDoc.runs[0].tool.driver.rules | ForEach-Object { $_.id }) -join ",") -eq (($BashSarif.runs[0].tool.driver.rules | ForEach-Object { $_.id }) -join ",")
+        Report-Assert "Positive fixture SARIF parity: identical results and rules" ($null -eq $SarifDiff -and $RulesSame -and $PsSarifNorm.Count -eq $BashSarifNorm.Count)
     } catch {
         Report-Assert "Bash JSON output parsing" $false $_.Exception.Message
     }

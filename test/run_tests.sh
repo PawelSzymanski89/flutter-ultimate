@@ -184,6 +184,13 @@ report_assert "Unknown CLI option exits with code 2" $(( unk_exit == 2 ? 1 : 0 )
 report_assert "Missing --target argument exits with code 2" $(( mis_exit == 2 ? 1 : 0 )) "$mis_out"
 report_assert "Non-existent target directory exits with code 2" $(( non_exit == 2 ? 1 : 0 )) "$non_out"
 
+set +e
+help_out=$("$AUDIT_SH" --help 2>/dev/null)
+help_exit=$?
+help_err=$("$AUDIT_SH" --help 2>&1 >/dev/null)
+set -e
+report_assert "--help exits with code 0 and prints usage on stdout" $(( help_exit == 0 && ${#help_out} > 0 && ${#help_err} == 0 ? 1 : 0 )) "exit=$help_exit stdout=${#help_out} stderr=${#help_err}"
+
 # 3. Test audit-flutter.sh on Positive Fixture
 printf '\n%b[3/6] Testing audit-flutter.sh Positive Fixture...%b\n' "$CYAN" "$NC"
 POS_DIR="$PROJECT_ROOT/test/fixtures/positive"
@@ -201,7 +208,7 @@ fi
 
 expected_traps=(
   "P03" "P32" "P07" "P12" "P19" "P21" "P26" "P27"
-  "K01" "W01" "W03" "W06" "W14"
+  "K01" "W01" "W03" "W05" "W06" "W14" "W21"
   "LINT-02" "GDPR-01" "GDPR-02" "GDPR-03" "GDPR-04"
 )
 
@@ -234,6 +241,42 @@ case "$single_output" in
   *) is_json_array=0 ;;
 esac
 report_assert "Single finding outputs valid JSON array [{...}]" "$is_json_array" "Output: $single_output"
+
+# 4b. SARIF output contract
+printf '\n%b[4b/6] Testing SARIF output...%b\n' "$CYAN" "$NC"
+PLUGIN_VERSION=$(node -e 'console.log(require(process.argv[1]).version)' "$PROJECT_ROOT/.claude-plugin/plugin.json")
+set +e
+sarif_pos=$("$AUDIT_SH" --target "$POS_DIR" --sarif 2>&1)
+sarif_neg=$("$AUDIT_SH" --target "$PROJECT_ROOT/test/fixtures/negative" --sarif 2>&1)
+"$AUDIT_SH" --target "$SINGLE_DIR" --json --sarif >/dev/null 2>&1
+both_modes_exit=$?
+# shellcheck disable=SC2016
+sarif_check=$(node -e '
+  const d = JSON.parse(process.argv[1]);
+  const run = d.runs[0];
+  const results = run.results;
+  const n = JSON.parse(process.argv[2]).length;
+  if (d.version !== "2.1.0") { console.error("version " + d.version); process.exit(1); }
+  if (run.tool.driver.version !== process.argv[3]) { console.error("driver.version " + run.tool.driver.version + " != plugin.json " + process.argv[3]); process.exit(1); }
+  if (results.length !== n) { console.error("results " + results.length + " != json findings " + n); process.exit(1); }
+  const ids = new Set(run.tool.driver.rules.map(r => r.id));
+  for (const r of results) {
+    if (!ids.has(r.ruleId)) { console.error("rule missing for " + r.ruleId); process.exit(1); }
+    if (!["error","warning","note"].includes(r.level)) { console.error("level " + r.level); process.exit(1); }
+    const loc = r.locations[0].physicalLocation;
+    if (!loc.artifactLocation.uri || loc.artifactLocation.uri.includes("\\") || !Number.isInteger(loc.region.startLine)) { console.error("location " + JSON.stringify(loc)); process.exit(1); }
+  }
+' "$sarif_pos" "$pos_output" "$PLUGIN_VERSION" 2>&1)
+sarif_check_exit=$?
+set -e
+report_assert "Positive fixture --sarif is SARIF 2.1.0 with one result per JSON finding, rules for every ruleId and driver.version == plugin.json" $(( sarif_check_exit == 0 ? 1 : 0 )) "$sarif_check"
+set +e
+# shellcheck disable=SC2016
+sarif_neg_check=$(node -e 'const d = JSON.parse(process.argv[1]); if (d.runs[0].results.length !== 0) { console.error("expected empty results"); process.exit(1); }' "$sarif_neg" 2>&1)
+sarif_neg_exit=$?
+set -e
+report_assert "Negative fixture --sarif is a valid document with empty results" $(( sarif_neg_exit == 0 ? 1 : 0 )) "$sarif_neg_check"
+report_assert "--json --sarif together exit with code 2" $(( both_modes_exit == 2 ? 1 : 0 )) "exit=$both_modes_exit"
 
 # 5. Test Negative & Suppression Fixtures
 printf '\n%b[5/6] Testing Negative & Suppression Fixtures...%b\n' "$CYAN" "$NC"
@@ -312,7 +355,7 @@ if [[ -n "$PWSH_CMD" ]]; then
   ' "$pos_output" "$ps_pos" 2>&1)
   diff_pos_exit=$?
 
-  report_assert "Positive fixture parity: 25 findings with zero discrepancies in (severity, trapId, file, line, message)" $(( diff_pos_exit == 0 ? 1 : 0 )) "$diff_pos"
+  report_assert "Positive fixture parity: 31 findings with zero discrepancies in (severity, trapId, file, line, message)" $(( diff_pos_exit == 0 ? 1 : 0 )) "$diff_pos"
 
   # shellcheck disable=SC2016
   diff_neg=$(node -e '
@@ -356,6 +399,18 @@ if [[ -n "$PWSH_CMD" ]]; then
     }
   ' "$single_output" "$ps_single" 2>&1)
   report_assert "Single finding fixture parity: exactly 1 matching record" $(( $? == 0 ? 1 : 0 )) "$diff_single"
+
+  set +e
+  ps_sarif=$("$PWSH_CMD" -NoProfile -ExecutionPolicy Bypass -File "$AUDIT_PS1" -Target "$POS_DIR" -Sarif 2>&1)
+  # shellcheck disable=SC2016
+  diff_sarif=$(node -e '
+    const norm = raw => { const d = JSON.parse(raw); d.runs[0].results.forEach(r => { r.locations[0].physicalLocation.artifactLocation.uri = r.locations[0].physicalLocation.artifactLocation.uri.replace(/\\/g, "/"); }); return JSON.stringify(d); };
+    const b = norm(process.argv[1]), p = norm(process.argv[2]);
+    if (b !== p) { console.error("SARIF differs:\n" + b.slice(0, 400) + "\n---\n" + p.slice(0, 400)); process.exit(1); }
+  ' "$sarif_pos" "$ps_sarif" 2>&1)
+  diff_sarif_exit=$?
+  set -e
+  report_assert "Positive fixture SARIF parity: identical documents" $(( diff_sarif_exit == 0 ? 1 : 0 )) "$diff_sarif"
 else
   printf '  %b[SKIP]%b PowerShell not found; skipping cross-platform parity assertion\n' "$YELLOW" "$NC"
 fi

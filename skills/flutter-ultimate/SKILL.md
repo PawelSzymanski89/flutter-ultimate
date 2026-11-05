@@ -3,7 +3,7 @@ name: flutter-ultimate
 description: >
   Elevates Flutter and Dart engineering to principal architectural standards.
   Targets 60/120 FPS render pipelines and catalogs 40 performance traps (P1-P40),
-  20 memory-leak patterns (W1-W20), and 14 BuildContext traps (K1-K14). Guides modern
+  21 memory-leak patterns (W1-W21), and 14 BuildContext traps (K1-K14). Guides modern
   Dart 3 sealed-class architectures, 4-tier state management, physics animations,
   and native GDPR privacy defaults. Use when planning Flutter features, writing
   or refactoring Flutter UI and logic, optimizing frame rates, fixing memory leaks,
@@ -48,7 +48,7 @@ Consult deep reference guides for concrete catalogs, syntax blueprints, and edge
 | Domain | Resource | Scope & Trap Coverage |
 | :--- | :--- | :--- |
 | **Performance (60/120 FPS)** | `references/performance-and-rendering.md` | Traps P1-P40: Rebuild loops, `const` constructor propagation, `RepaintBoundary`, shader jank, layout thrashing, image resizing, and `CustomScrollView` / sliver virtualization. |
-| **Memory & Lifecycle** | `references/memory-and-lifecycle.md` | Traps W1-W20 & K1-K14: Resource disposal pairing, stream cancellation, BuildContext async gap guards, mounted checks, and `AppLifecycleListener` background state handling. |
+| **Memory & Lifecycle** | `references/memory-and-lifecycle.md` | Traps W1-W21 & K1-K14: Resource disposal pairing, stream cancellation, BuildContext async gap guards, mounted checks, and `AppLifecycleListener` background state handling. |
 | **Motion, UI & Slivers** | `references/motion-and-ui.md` | Physics simulations (`SpringSimulation`, `Curves.easeOutCubic`), `AnimatedBuilder` isolation, sliver virtualization, `Hero` shuttle builders, design tokens, and haptic feedback. |
 | **Dart 3 & Architecture** | `references/dart3-and-architecture.md` | 4-tier state selection ladder, Dart 3 sealed class models, records, pattern matching, immutable data pipelines, and Clean Architecture boundaries. |
 | **Production Stack** | `references/production-stack.md` | `go_router` (StatefulShellRoute, auth guards), `flutter_bloc` (transformers, boundaries), `flutter_secure_storage` (hardware keystores), and `hive` (encrypted & LazyBox bounds). |
@@ -57,13 +57,15 @@ Consult deep reference guides for concrete catalogs, syntax blueprints, and edge
 | **Impeller & GPU** | `references/impeller-and-gpu.md` | Telling UI-thread, raster-thread and GPU bottlenecks apart; Impeller availability; `saveLayer`, blur, clip and shadow cost as hypotheses to measure; custom painting; fragment shaders. |
 | **Testing & Reliability** | `references/testing-and-reliability.md` | Leak tracking in widget tests (`leak_tracker_flutter_testing`), ownership in tests, `pumpAndSettle` limits, `fake_async`, pending timers, isolation between tests. |
 | **Native Bridge & Background** | `references/native-bridge-and-background.md` | `MethodChannel` / `EventChannel` / Pigeon choice, `onListen` / `onCancel` symmetry, WorkManager and `BGTaskScheduler` limits, background isolates, deep link before auth is known. |
+| **Accessibility** | `references/accessibility.md` | Semantics tree and screen readers, review checklist (`Semantics`, `MergeSemantics`, live regions, focus), WCAG contrast and tap-target numbers from `flutter_test`, `TextScaler`, `meetsGuideline` tests, manual pass. |
 | **Linter Configuration** | `assets/analysis_options.yaml` | Production-grade compiler and linter rules enforcing strict typing, const propagation, and resource disposal checks. |
-| **Deterministic Audit** | `scripts/audit-flutter.ps1`<br>`scripts/audit-flutter.sh` | Automated static analysis scripts running deterministic pattern detection for active core rules (P03, P07, P12, P19, P21, P26, P27, P32, K01, W01, W03, W06, W14, LINT, GDPR). |
+| **Deterministic Audit** | `scripts/audit-flutter.ps1`<br>`scripts/audit-flutter.sh` | Deterministic pattern detection for P03, P07, P12, P19, P21, P26, P27, P32, K01, W01, W03, W05, W06, W14, W21, LINT, GDPR; `--json` or `--sarif` output. |
 
 Load `advanced-framework-patterns.md` when the task names one of those mechanisms or you must choose between them; read only the section its tables point to. Do not load it for ordinary widget edits.
 Load `impeller-and-gpu.md` for jank on the raster thread, `BackdropFilter`, `saveLayer`, opacity or clipping cost, `CustomPainter` performance, shaders or Impeller questions.
 Load `testing-and-reliability.md` for widget or integration tests, leaked objects in tests, `leak_tracker`, `pumpAndSettle`, `fake_async`, pending timers or flaky tests.
 Load `native-bridge-and-background.md` for `MethodChannel`, `EventChannel`, Pigeon, native callbacks, WorkManager, `BGTaskScheduler`, background isolates, or deep links during auth restoration.
+Load `accessibility.md` for screen-reader, `Semantics`, contrast, tap-target, text-scaling or focus questions, and before a release review of forms and navigation.
 None of these is loaded for an ordinary widget edit.
 
 ---
@@ -104,7 +106,7 @@ Activate this mode when designing a new feature, screen, or domain module prior 
                                v
 +--------------------------------------------------------------+
 | 4. Lifecycle & Privacy Design                                |
-|    - Enumerate disposable resources (W1-W20 checklist)       |
+|    - Enumerate disposable resources (W1-W21 checklist)       |
 |    - Verify native consent flags (GDPR/RODO)                 |
 +--------------------------------------------------------------+
 ```
@@ -233,29 +235,29 @@ Verify native privacy defaults in `android/app/src/main/AndroidManifest.xml` and
 - iOS: `FIREBASE_ANALYTICS_COLLECTION_ENABLED = false` and `FirebaseCrashlyticsCollectionEnabled = false`.
 
 ### Step 2: Automated Static Audit Execution
-Run the cross-platform audit script from repository root:
-
-**On Windows (PowerShell 5.1/7+):**
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts/audit-flutter.ps1
-```
+The scanner ships with this skill, not with the audited repository. Run it against the repository root (`--target .`):
 
 **On Linux / macOS (Bash 3.2+):**
 ```bash
-bash scripts/audit-flutter.sh
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/audit-flutter.sh --target . --json
 ```
 
-**Machine-Readable JSON Output (for CI/CD):**
+**On Windows (PowerShell 5.1/7+):**
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/audit-flutter.ps1 -Json
+powershell -ExecutionPolicy Bypass -File ${CLAUDE_PLUGIN_ROOT}/scripts/audit-flutter.ps1 -Target . -Json
 ```
+
+Installed standalone (no plugin root), the scripts sit next to this file under `scripts/`. `--sarif` / `-Sarif` writes SARIF 2.1.0 for GitHub code scanning instead of JSON.
+
+If the script does not run (permission denied, not found, tool unavailable): report that with the exact command and stop the static step.
+Never rebuild the detectors with `grep` or by reading files; an imitation produces different counts and the report would present them as the scanner's. State which scanner version produced the numbers.
 
 ### Step 3: Defect Triage & Severity Matrix
 
 | Severity | Impact | Required Action |
 | :--- | :--- | :--- |
-| **CRITICAL** | Runtime crashes, memory leaks in State (`W01`, `W03`, `W06`, `W14`), unmounted context access across await (`K01`), unclosed sinks. | Must be resolved immediately before merging or shipping. |
-| **HIGH** | Pattern-matched frame-budget risks: `P07`, `P12`, `P19`, `P21`, `P32`, outdated linter `LINT-02`. Not a CI blocker by default (`--fail-on`). | Must be optimized to ensure 60/120 FPS pipeline. |
+| **CRITICAL** | Runtime crashes, memory leaks in State (`W01`, `W03`, `W06`, `W14`, `W21`), unmounted context access across await (`K01`), unclosed sinks. | Must be resolved immediately before merging or shipping. |
+| **HIGH** | Pattern-matched frame-budget risks: `P07`, `P12`, `P19`, `P21`, `P32`, repeated registration in `didChangeDependencies` (`W05`), outdated linter `LINT-02`. Not a CI blocker by default (`--fail-on`). | Must be optimized to ensure 60/120 FPS pipeline. |
 | **MEDIUM** | Missing `const` constructors, fractional `Opacity` (`P26`), missing linter config (`LINT-01`). | Refactor during scheduled quality pass. |
 | **LOW** | Minor style cleanups, ClipRRect optimization (`P27`), helper method extraction (`P03`), redundant containers. | Cleanup when touching file. |
 
@@ -310,7 +312,7 @@ Rules for suppression:
 An engineering or audit task is complete ONLY when all applicable criteria pass:
 
 - [ ] **Frame Budget Confirmed**: No full-tree rebuilds in `build()` methods; heavy dynamic subtrees isolated with `RepaintBoundary`.
-- [ ] **Resource Disposal Complete**: Every controller, sink, subscription, timer, and listener instantiated has a corresponding `dispose()` call (W1-W20 clean).
+- [ ] **Resource Disposal Complete**: Every controller, sink, subscription, timer, and listener instantiated has a corresponding `dispose()` call (W1-W21 clean).
 - [ ] **Async Context Safe**: Every `BuildContext` usage following an `await` is guarded by `context.mounted` or `mounted` (K1-K14 clean).
 - [ ] **Dart 3 State Modeling**: Feature state machines use `sealed` classes with exhaustive switch matching and no unhandled states.
 - [ ] **List Virtualization**: Unbounded or expensive collections use `.builder` constructors with bounded layouts; the choice is justified by item count and cost, not by a fixed number.

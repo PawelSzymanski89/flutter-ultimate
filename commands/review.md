@@ -12,7 +12,7 @@ Systematically evaluate against the **Flutter Ultimate** standards in strict pri
 
 1. **CRITICAL RUNTIME SAFETY**:
    - **Async BuildContext Gaps (K01-K14)**: Any `Navigator`, `ScaffoldMessenger`, `Theme`, `MediaQuery`, or `context.read/watch/go/push` across an `await` without an immediate `if (!context.mounted) return;` or `if (!mounted) return;` guard.
-   - **Disposal Pairing Leaks (W01-W20)**: Controllers closed with `.dispose()` (`TextEditingController`, `AnimationController`, `ScrollController`, `TabController`, `PageController`, `FocusNode`, `VideoPlayerController`, `CameraController`, `AppLifecycleListener`), stream sinks closed with `.close()` (`StreamController`), subscriptions and timers cancelled with `.cancel()` (`StreamSubscription`, `Timer`) in `dispose()`.
+   - **Disposal Pairing Leaks (W01-W21)**: Controllers closed with `.dispose()` (`TextEditingController`, `AnimationController`, `ScrollController`, `TabController`, `PageController`, `FocusNode`, `VideoPlayerController`, `CameraController`, `AppLifecycleListener`), stream sinks closed with `.close()` (`StreamController`), subscriptions and timers cancelled with `.cancel()` (`StreamSubscription`, `Timer`) in `dispose()`.
    - **Isolate Compute Starvation**: Heavy `jsonDecode` of large payloads or CPU-bound calculations executing on the main UI isolate instead of `Isolate.run()`, starving the 8.33ms/16.6ms frame budget.
 
 2. **60/120 FPS PIPELINE (2ms - 5ms Dart Execution Window)**:

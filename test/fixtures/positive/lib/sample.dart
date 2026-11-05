@@ -177,3 +177,80 @@ class _OrphanCleanupWidgetState extends State<OrphanCleanupWidget> {
   @override
   Widget build(BuildContext context) => const SizedBox.shrink();
 }
+
+// K01: go_router style context.goNamed(...) is a call on the widget's context after an await.
+class RouterCallWidget extends StatefulWidget {
+  const RouterCallWidget({super.key});
+
+  @override
+  State<RouterCallWidget> createState() => _RouterCallWidgetState();
+}
+
+class _RouterCallWidgetState extends State<RouterCallWidget> {
+  Future<void> unsafeGoNamed() async {
+    await Future<void>.value();
+    context.goNamed('home');
+  }
+
+  @override
+  Widget build(BuildContext context) => const SizedBox.shrink();
+}
+
+// W21: SingleTickerProviderStateMixin vends one Ticker; the second 'vsync: this' throws in debug.
+class TwoTickersWidget extends StatefulWidget {
+  const TwoTickersWidget({super.key});
+
+  @override
+  State<TwoTickersWidget> createState() => _TwoTickersWidgetState();
+}
+
+class _TwoTickersWidgetState extends State<TwoTickersWidget> with SingleTickerProviderStateMixin {
+  late final AnimationController _fade = AnimationController(vsync: this);
+  late final AnimationController _slide = AnimationController(vsync: this);
+
+  @override
+  void dispose() {
+    _fade.dispose();
+    _slide.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => const SizedBox.shrink();
+}
+
+// W05: registrations in didChangeDependencies() repeat on every dependency change. Both resources
+// are released in dispose(), so W03 stays silent and only W05 reports.
+class RepeatedRegistrationWidget extends StatefulWidget {
+  const RepeatedRegistrationWidget({super.key});
+
+  @override
+  State<RepeatedRegistrationWidget> createState() => _RepeatedRegistrationWidgetState();
+}
+
+class _RepeatedRegistrationWidgetState extends State<RepeatedRegistrationWidget> {
+  StreamSubscription<int>? _events;
+  final ValueNotifier<int> _counter = ValueNotifier<int>(0);
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _events = Stream<int>.periodic(const Duration(seconds: 1)).listen((_) {});
+    _counter.addListener(_onCount);
+    // W05: the receiver is a call result, so the previous listener can never be removed
+    Listenable.merge([_counter]).addListener(_onCount);
+  }
+
+  void _onCount() {}
+
+  @override
+  void dispose() {
+    _events?.cancel();
+    _counter.removeListener(_onCount);
+    _counter.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => const SizedBox.shrink();
+}

@@ -77,3 +77,42 @@ class _SuppressedTestWidgetState extends State<SuppressedTestWidget> with Single
     super.dispose();
   }
 }
+
+class SuppressedTickerWidget extends StatefulWidget {
+  const SuppressedTickerWidget({super.key});
+
+  @override
+  State<SuppressedTickerWidget> createState() => _SuppressedTickerWidgetState();
+}
+
+class _SuppressedTickerWidgetState extends State<SuppressedTickerWidget> with SingleTickerProviderStateMixin {
+  late final AnimationController _fade = AnimationController(vsync: this);
+  // flutter-ultimate:ignore W21 Second controller is created only after the first is disposed
+  late final AnimationController _slide = AnimationController(vsync: this);
+  StreamSubscription<int>? _events;
+  final ValueNotifier<int> _counter = ValueNotifier<int>(0);
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // flutter-ultimate:ignore W05 Stream is a broadcast singleton that dedupes listeners
+    _events = Stream<int>.periodic(const Duration(seconds: 1)).listen((_) {});
+    // flutter-ultimate:ignore W05 Listener is idempotent by design
+    _counter.addListener(_onCount);
+  }
+
+  void _onCount() {}
+
+  @override
+  void dispose() {
+    _fade.dispose();
+    _slide.dispose();
+    _events?.cancel();
+    _counter.removeListener(_onCount);
+    _counter.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => const SizedBox.shrink();
+}

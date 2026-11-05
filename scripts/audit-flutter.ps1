@@ -10,6 +10,9 @@
 .PARAMETER Json
     Switch to output findings in machine-readable JSON format for CI/CD.
 
+.PARAMETER Sarif
+    Switch to output findings as SARIF 2.1.0 (GitHub code scanning). Mutually exclusive with -Json.
+
 .PARAMETER Strict
     Exit with code 1 on any warning (Medium/Low) in addition to errors (Critical/High).
 #>
@@ -18,11 +21,17 @@ param(
     [Alias("target")]
     [string]$TargetPath = ".",
     [switch]$Json,
+    [switch]$Sarif,
     [switch]$Strict,
     [ValidateSet("CRITICAL","HIGH","MEDIUM","LOW")][string]$FailOn = "CRITICAL"
 )
 
 $ErrorActionPreference = "Stop"
+$ScriptVersion = "1.8.0"
+if ($Json -and $Sarif) {
+    [Console]::Error.WriteLine("Error: -Json and -Sarif are mutually exclusive")
+    exit 2
+}
 
 if (-not (Test-Path $TargetPath)) {
     [Console]::Error.WriteLine("Error: Target directory '$TargetPath' does not exist")
@@ -200,7 +209,7 @@ foreach ($FileItem in $DartFiles) {
                     $DangerOp = "Dialog"
                 } elseif ($FLine -match "(?:ScaffoldMessenger\.of|Theme\.of|MediaQuery\.of)\s*\(\s*context") {
                     $DangerOp = "Context theme/messenger lookup"
-                } elseif ($FLine -match "(?:^|[^A-Za-z0-9_.])context\.(?:read|watch|select|push|pop|go)") {
+                } elseif ($FLine -match "(?:^|[^A-Za-z0-9_.])context\.(?:read|watch|select|push|pop|go)[A-Za-z0-9_]*\s*[<(]") {
                     $DangerOp = "context extension method"
                 }
 
@@ -429,6 +438,95 @@ foreach ($FileItem in $DartFiles) {
                         }
                     }
                 }
+
+                # W21: SingleTickerProviderStateMixin vends exactly one Ticker. The class header may wrap, so read it up to its "{".
+                $ClassHeader = ""
+                for ($h = $StateClassStart; $h -le $StateClassEnd; $h++) {
+                    $ClassHeader += $Lines[$h] + " "
+                    if ($Lines[$h] -match "\{") { break }
+                }
+                if ($ClassHeader -match "(?:^|[^A-Za-z0-9_])SingleTickerProviderStateMixin(?:$|[^A-Za-z0-9_])") {
+                    $VsyncLines = @()
+                    for ($m = $StateClassStart + 1; $m -le $StateClassEnd; $m++) {
+                        $MLine = $Lines[$m]
+                        if ($MLine -match "^\s*//") { continue }
+                        if ($MLine -match "(?:^|[^A-Za-z0-9_])vsync:\s*this(?:$|[^A-Za-z0-9_])") { $VsyncLines += ($m + 1) }
+                    }
+                    if ($VsyncLines.Count -ge 2) {
+                        $SecondVsync = $VsyncLines[1]
+                        if (-not (& $IsSuppressed $SecondVsync "W21")) {
+                            Add-Finding -File $FileItem.FullName -Line $SecondVsync -Severity "CRITICAL" -TrapId "W21" `
+                                -Message "State mixes in SingleTickerProviderStateMixin but passes 'vsync: this' $($VsyncLines.Count) times (lines $($VsyncLines -join ' ')). The second Ticker throws 'multiple tickers were created' in debug and silently replaces the first in release. Use TickerProviderStateMixin."
+                        }
+                    }
+                }
+
+                # W05: listen()/addListener() in didChangeDependencies() re-registers on every dependency change unless the previous registration is torn down in the same method.
+                $DdcStart = -1
+                $DdcEnd = -1
+                for ($m = $StateClassStart + 1; $m -le $StateClassEnd; $m++) {
+                    if ($DepthBefore[$m] -eq ($ClassBase + 1) -and $Lines[$m] -match "(?:^|[^A-Za-z0-9_])didChangeDependencies\s*\(") {
+                        $DdcStart = $m
+                        $DdcEnd = $StateClassEnd
+                        for ($k = $m; $k -le $StateClassEnd; $k++) {
+                            if ($k -gt $m -and $DepthAfter[$k] -le ($ClassBase + 1)) { $DdcEnd = $k; break }
+                        }
+                        break
+                    }
+                }
+                if ($DdcStart -ge 0) {
+                    $DdcBodyLines = @()
+                    for ($m = $DdcStart; $m -le $DdcEnd; $m++) {
+                        if ($Lines[$m] -match "^\s*//") { continue }
+                        $DdcBodyLines += $Lines[$m]
+                    }
+                    $DdcBody = ($DdcBodyLines -join "`n")
+                    # A run-once guard (if (!_done) { _done = true; ... } or if (_first) { _first = false; ... }) makes the method body execute once.
+                    $DdcOnce = $false
+                    if ($DdcBody -match "if\s*\(\s*!\s*([A-Za-z_][A-Za-z0-9_]*)\s*\)") {
+                        $Flag = $Matches[1]
+                        if ($DdcBody -match "(?:^|[^A-Za-z0-9_])$Flag\s*=\s*true") { $DdcOnce = $true }
+                    }
+                    if ($DdcBody -match "if\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*\)") {
+                        $Flag = $Matches[1]
+                        if ($DdcBody -match "(?:^|[^A-Za-z0-9_])$Flag\s*=\s*false") { $DdcOnce = $true }
+                    }
+                    if ($DdcOnce) { $DdcEnd = $DdcStart - 1 }
+                    for ($m = $DdcStart; $m -le $DdcEnd; $m++) {
+                        $MLine = $Lines[$m]
+                        $MLineNum = $m + 1
+                        if ($MLine -match "^\s*//") { continue }
+                        if ($MLine -match "(?:^|[^A-Za-z0-9_])([A-Za-z0-9_]+)\s*=[^;\n]*\.listen\s*\(") {
+                            $VarName = $Matches[1]
+                            if ($VarName -and (& $StateOwned $VarName $false)) {
+                                $ReCancel = "(?:^|[^A-Za-z0-9_])" + [regex]::Escape($VarName) + "(?:\?\.|!\.|\.)cancel\s*\("
+                                $ReNull = "(?:^|[^A-Za-z0-9_])" + [regex]::Escape($VarName) + "\s*[!=]=\s*null|null\s*[!=]=\s*" + [regex]::Escape($VarName) + "(?:$|[^A-Za-z0-9_])"
+                                if (-not ($DdcBody -match $ReCancel) -and -not ($DdcBody -match $ReNull)) {
+                                    if (-not (& $IsSuppressed $MLineNum "W05")) {
+                                        Add-Finding -File $FileItem.FullName -Line $MLineNum -Severity "HIGH" -TrapId "W05" `
+                                            -Message "Subscription '$VarName' is opened in didChangeDependencies() without cancelling the previous one in the same method; didChangeDependencies() runs again on every dependency change, so the listener is registered repeatedly (static heuristic: cancel first, or use ??= / a null check)."
+                                    }
+                                }
+                            }
+                        }
+                        if ($MLine -match "\)\s*\.addListener\s*\(") {
+                            # Receiver is a call result (context.read<T>().addListener, Listenable.merge([...]).addListener): nothing to pair a removeListener() with.
+                            if (-not (& $IsSuppressed $MLineNum "W05")) {
+                                Add-Finding -File $FileItem.FullName -Line $MLineNum -Severity "HIGH" -TrapId "W05" `
+                                    -Message "addListener() is called on a call result in didChangeDependencies(); the previous listener cannot be removed because the receiver is not kept, and didChangeDependencies() runs again on every dependency change (static heuristic: keep the notifier in a field, remove the old listener, then add)."
+                            }
+                        } elseif ($MLine -match "(?:^|[^A-Za-z0-9_])([A-Za-z0-9_.]+)\.addListener\s*\(") {
+                            $Recv = $Matches[1]
+                            $ReRemove = "(?:^|[^A-Za-z0-9_])" + [regex]::Escape($Recv) + "\.removeListener\s*\("
+                            if (-not ($DdcBody -match $ReRemove)) {
+                                if (-not (& $IsSuppressed $MLineNum "W05")) {
+                                    Add-Finding -File $FileItem.FullName -Line $MLineNum -Severity "HIGH" -TrapId "W05" `
+                                        -Message "'$Recv.addListener()' is called in didChangeDependencies() without a matching removeListener() in the same method; didChangeDependencies() runs again on every dependency change, so the listener is added repeatedly (static heuristic: remove the previous listener first)."
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -502,7 +600,59 @@ if (Test-Path $IosPlist) {
 }
 
 # 4. Output Results
-if ($Json) {
+$RuleDesc = @{
+    "K01" = "BuildContext used after an await with no mounted guard in between"
+    "W01" = "Controller created by a State without dispose() reachable from dispose()"
+    "W03" = "StreamSubscription without cancel() reachable from dispose()"
+    "W05" = "listen()/addListener() in didChangeDependencies() without tearing down the previous registration"
+    "W06" = "Timer without cancel() reachable from dispose()"
+    "W14" = "StreamController without close() reachable from dispose()"
+    "W21" = "SingleTickerProviderStateMixin used for more than one Ticker"
+    "P03" = "Helper _buildX() method instead of a StatelessWidget"
+    "P07" = "Broad MediaQuery.of(context) dependency"
+    "P12" = "Future/Stream created inline in FutureBuilder/StreamBuilder inside build()"
+    "P19" = "shrinkWrap: true"
+    "P21" = "IntrinsicHeight/IntrinsicWidth speculative layout"
+    "P26" = "Opacity with a fractional value"
+    "P27" = "ClipRRect"
+    "P32" = "Paint or Path allocated inside build()/paint()"
+    "LINT-01" = "No linter package and no analysis_options.yaml include"
+    "LINT-02" = "Outdated flutter_lints"
+    "GDPR-01" = "AndroidManifest: firebase_analytics_collection_enabled not false"
+    "GDPR-02" = "AndroidManifest: firebase_crashlytics_collection_enabled not false"
+    "GDPR-03" = "Info.plist: FIREBASE_ANALYTICS_COLLECTION_ENABLED not false"
+    "GDPR-04" = "Info.plist: FirebaseCrashlyticsCollectionEnabled not false"
+}
+$SarifLevel = @{ CRITICAL = "error"; HIGH = "warning"; MEDIUM = "warning"; LOW = "note" }
+
+if ($Sarif) {
+    # SARIF 2.1.0 (GitHub code scanning): one run, rules = the trap ids that occurred, results in scan order.
+    $RuleIds = @()
+    foreach ($f in $Findings) { if ($RuleIds -notcontains $f.TrapId) { $RuleIds += $f.TrapId } }
+    $Rules = @()
+    foreach ($r in $RuleIds) {
+        $d = if ($RuleDesc.ContainsKey($r)) { $RuleDesc[$r] } else { $r }
+        $Rules += [ordered]@{ id = $r; shortDescription = [ordered]@{ text = $d } }
+    }
+    $Results = @()
+    foreach ($f in $Findings) {
+        $Results += [ordered]@{
+            ruleId = $f.TrapId
+            level = $SarifLevel[$f.Severity]
+            message = [ordered]@{ text = $f.Message }
+            locations = @([ordered]@{ physicalLocation = [ordered]@{ artifactLocation = [ordered]@{ uri = ($f.File -replace "\\", "/") }; region = [ordered]@{ startLine = [int]$f.Line } } })
+        }
+    }
+    $Doc = [ordered]@{
+        version = "2.1.0"
+        '$schema' = "https://json.schemastore.org/sarif-2.1.0.json"
+        runs = @([ordered]@{
+            tool = [ordered]@{ driver = [ordered]@{ name = "flutter-ultimate"; version = $ScriptVersion; informationUri = "https://github.com/PawelSzymanski89/flutter-ultimate"; rules = @($Rules) } }
+            results = @($Results)
+        })
+    }
+    ConvertTo-Json -InputObject $Doc -Depth 12 -Compress
+} elseif ($Json) {
     if ($Findings.Count -eq 0) {
         "[]"
     } else {

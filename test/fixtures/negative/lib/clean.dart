@@ -413,3 +413,136 @@ class _CaseStudyTwoWidgetState extends State<CaseStudyTwoWidget> {
   @override
   Widget build(BuildContext context) => const SizedBox.shrink();
 }
+
+// Regression: a property access such as context.googleAnalyticsId is not a navigation call, and
+// context.goNamed(...) behind a mounted guard is clean.
+class PropertyAccessWidget extends StatefulWidget {
+  const PropertyAccessWidget({super.key});
+
+  @override
+  State<PropertyAccessWidget> createState() => _PropertyAccessWidgetState();
+}
+
+class _PropertyAccessWidgetState extends State<PropertyAccessWidget> {
+  Future<void> readProperty() async {
+    await Future<void>.value();
+    final id = context.googleAnalyticsId;
+    if (!mounted) return;
+    context.goNamed('home', extra: id);
+  }
+
+  @override
+  Widget build(BuildContext context) => const SizedBox.shrink();
+}
+
+extension on BuildContext {
+  String get googleAnalyticsId => 'id';
+  void goNamed(String name, {Object? extra}) {}
+}
+
+// Regression (W21): two controllers under TickerProviderStateMixin are fine, and a header that
+// wraps onto the next line is still read as a whole.
+class ManyTickersWidget extends StatefulWidget {
+  const ManyTickersWidget({super.key});
+
+  @override
+  State<ManyTickersWidget> createState() => _ManyTickersWidgetState();
+}
+
+class _ManyTickersWidgetState extends State<ManyTickersWidget>
+    with TickerProviderStateMixin {
+  late final AnimationController _fade = AnimationController(vsync: this);
+  late final AnimationController _slide = AnimationController(vsync: this);
+
+  @override
+  void dispose() {
+    _fade.dispose();
+    _slide.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => const SizedBox.shrink();
+}
+
+// Regression (W05): the previous registration is torn down in didChangeDependencies() itself
+// (cancel first, ??=, a null check, removeListener before addListener).
+class GuardedRegistrationWidget extends StatefulWidget {
+  const GuardedRegistrationWidget({super.key});
+
+  @override
+  State<GuardedRegistrationWidget> createState() => _GuardedRegistrationWidgetState();
+}
+
+class _GuardedRegistrationWidgetState extends State<GuardedRegistrationWidget> {
+  StreamSubscription<int>? _events;
+  StreamSubscription<int>? _once;
+  StreamSubscription<int>? _checked;
+  final ValueNotifier<int> _counter = ValueNotifier<int>(0);
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _events?.cancel();
+    _events = Stream<int>.periodic(const Duration(seconds: 1)).listen((_) {});
+    _once ??= Stream<int>.periodic(const Duration(seconds: 1)).listen((_) {});
+    if (_checked == null) {
+      _checked = Stream<int>.periodic(const Duration(seconds: 1)).listen((_) {});
+    }
+    _counter.removeListener(_onCount);
+    _counter.addListener(_onCount);
+  }
+
+  void _onCount() {}
+
+  @override
+  void dispose() {
+    _events?.cancel();
+    _once?.cancel();
+    _checked?.cancel();
+    _counter.removeListener(_onCount);
+    _counter.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => const SizedBox.shrink();
+}
+
+// Regression (W05): a run-once guard in didChangeDependencies() (flag flipped inside the branch)
+// means the registrations happen once; the private app's settings page uses this form.
+class OnceGuardWidget extends StatefulWidget {
+  const OnceGuardWidget({super.key});
+
+  @override
+  State<OnceGuardWidget> createState() => _OnceGuardWidgetState();
+}
+
+class _OnceGuardWidgetState extends State<OnceGuardWidget> {
+  bool _initialized = false;
+  StreamSubscription<int>? _events;
+  final ValueNotifier<int> _counter = ValueNotifier<int>(0);
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_initialized) {
+      _initialized = true;
+      _events = Stream<int>.periodic(const Duration(seconds: 1)).listen((_) {});
+      _counter.addListener(_onCount);
+    }
+  }
+
+  void _onCount() {}
+
+  @override
+  void dispose() {
+    _events?.cancel();
+    _counter.removeListener(_onCount);
+    _counter.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => const SizedBox.shrink();
+}

@@ -10,8 +10,8 @@
 Not a widget library and not an app starter. Flutter Ultimate is three things in one repository:
 
 - a set of Flutter / Dart rules for an AI coding agent (Claude Code plugin, also usable as an [Agent Skills](https://agentskills.io) skill): frame budget, resource disposal, `BuildContext` after `await`, Dart 3 state modeling, privacy defaults in native manifests;
-- ten reference manuals the agent reads on demand (74 catalogued traps, a decision guide for framework APIs that are easy to misuse, and guides for GPU diagnosis, leak testing and the native bridge);
-- a Bash / PowerShell script that checks 19 of those rules in CI, with no dependencies.
+- eleven reference manuals the agent reads on demand (75 catalogued traps, a decision guide for framework APIs that are easy to misuse, and guides for GPU diagnosis, leak testing, the native bridge and accessibility);
+- a Bash / PowerShell script that checks 21 of those rules in CI, with no dependencies (JSON or SARIF output).
 
 The name is a leftover from the first version. It means "the whole trap catalog in one place", nothing more.
 
@@ -48,7 +48,7 @@ Five tenets, each backed by a reference manual. `SKILL.md` holds the workflow an
 | Tenet | In one sentence | Manual |
 | :--- | :--- | :--- |
 | **Frame budget** | Target 16.6 ms (60 Hz) / 8.33 ms (120 Hz); keep layout thrashing, synchronous I/O and un-virtualized lists off the UI isolate. | [performance-and-rendering.md](references/performance-and-rendering.md) (P1–P40) |
-| **Disposal pairing** | Every controller, subscription, timer and sink owned by a `State` is released in `dispose()`. | [memory-and-lifecycle.md](references/memory-and-lifecycle.md) (W1–W20) |
+| **Disposal pairing** | Every controller, subscription, timer and sink owned by a `State` is released in `dispose()`. | [memory-and-lifecycle.md](references/memory-and-lifecycle.md) (W1–W21) |
 | **Async `BuildContext` safety** | No `Navigator`, `ScaffoldMessenger`, `Theme` or `setState` after an `await` without a mounted guard in between. | [memory-and-lifecycle.md](references/memory-and-lifecycle.md) (K1–K14) |
 | **Dart 3 modeling** | Domain state as `sealed` hierarchies with exhaustive `switch`; a four-tier state ladder (`setState` / `ValueNotifier`, `ChangeNotifier`, Riverpod / Provider, BLoC / Cubit). | [dart3-and-architecture.md](references/dart3-and-architecture.md) |
 | **Privacy-first native defaults** | Firebase Analytics and Crashlytics disabled in `AndroidManifest.xml` and `Info.plist` until the user consents. | [platform-and-security.md](references/platform-and-security.md) |
@@ -131,7 +131,7 @@ The statusline needs no `node`. Claude Code accepts one statusLine command; to k
 
 ## Deterministic Static Code Audit
 
-`scripts/audit-flutter.sh` (Bash 3.2+) and `scripts/audit-flutter.ps1` (PowerShell 5.1+ / pwsh) implement the same 19 rules with the same CLI, exit codes, JSON output, file paths, line numbers and messages. The test suite diffs their normalised output on every CI run.
+`scripts/audit-flutter.sh` (Bash 3.2+) and `scripts/audit-flutter.ps1` (PowerShell 5.1+ / pwsh) implement the same 21 rules with the same CLI, exit codes, JSON and SARIF output, file paths, line numbers and messages. The test suite diffs their normalised output on every CI run.
 
 ### Limitations
 
@@ -139,9 +139,10 @@ The statusline needs no `node`. Claude Code accepts one statusLine command; to k
 - False positives and false negatives are possible. Every `K01` and `W*` message says what was and was not verified.
 - **K01** scans the function body that contains the `await` (nearest non-control-flow block opener). The awaited statement's own argument list is skipped, so callbacks inside `await showDialog(...)` are not reported; an `else` branch of the block that holds the `await` is skipped; an arrow closure `() async => await x` is not scanned. A guard placed before the `await` does not count. `setState` is matched only as `State.setState`, not `something.setState(...)`. Files under top-level `test/` and `integration_test/` are not scanned.
 - **W01 / W03 / W06 / W14** treat a resource as State-owned when it is initialised at field level or assigned to a declared field; locals inside methods are ignored (clean them up with `try/finally`). A release counts only inside `dispose()` or inside a method that `dispose()` calls directly. Not tracked: anonymous `Timer(...)` / `.listen(...)` without assignment, tear-offs (`disposables.add(_c.dispose)`), bulk loops, releases delegated to mixins or managers. Use `// flutter-ultimate:ignore W01 <reason>` for those.
+- **W05** reads only the body of `didChangeDependencies()`: a `?.cancel()`, `removeListener()`, `??=` or `== null` check on the same variable in that method, or a run-once flag (`if (!_done) { _done = true; ... }`), silences it. A guard that lives in a helper method is not seen. `addListener()` on a call result (`context.read<T>().addListener(...)`) is always reported, since the previous listener cannot be removed from a receiver that is not kept. **W21** counts `vsync: this` textually inside the `State` class, including a controller that is disposed and recreated (which also throws under `SingleTickerProviderStateMixin`).
 - Treat findings as strong signals, not as proof. Verify CRITICAL findings in code review and performance findings with Flutter DevTools.
 
-### Active Detectors (19 Rules)
+### Active Detectors (21 Rules)
 
 | Rule ID | Severity | Category | Description |
 | :--- | :--- | :--- | :--- |
@@ -150,6 +151,8 @@ The statusline needs no `node`. Claude Code accepts one statusLine command; to k
 | **W03** | `CRITICAL` | Memory Disposal | `StreamSubscription` without `.cancel()` reachable from `dispose()`. |
 | **W06** | `CRITICAL` | Memory Disposal | `Timer` without `.cancel()` reachable from `dispose()`. |
 | **W14** | `CRITICAL` | Memory Disposal | `StreamController` without `.close()` reachable from `dispose()`. |
+| **W21** | `CRITICAL` | Memory Disposal | `SingleTickerProviderStateMixin` with two or more `vsync: this` (the second `Ticker` throws in debug, replaces the first in release). |
+| **W05** | `HIGH` | Memory Disposal | `.listen()` / `.addListener()` inside `didChangeDependencies()` without cancelling / removing the previous registration in the same method. |
 | **P03** | `LOW` | Rebuild Scoping | Helper `_buildX()` method inside a widget; a `StatelessWidget` gives an isolated rebuild boundary. |
 | **P07** | `HIGH` | Rebuild Scoping | Broad `MediaQuery.of(context)` dependency; use `sizeOf`, `paddingOf`, `viewInsetsOf`. |
 | **P12** | `HIGH` | Frame Budget | `Future` / `Stream` created inline in `FutureBuilder` / `StreamBuilder` inside `build()`. |
@@ -164,7 +167,7 @@ The statusline needs no `node`. Claude Code accepts one statusLine command; to k
 
 ### Running the Audit
 
-Exit codes: `0` nothing at or above the threshold, `1` a finding at or above `--fail-on` (default `CRITICAL`; `--strict` means any finding), `2` CLI error. `--json` prints `[]` for zero findings and a JSON array otherwise.
+Exit codes: `0` nothing at or above the threshold, `1` a finding at or above `--fail-on` (default `CRITICAL`; `--strict` means any finding), `2` CLI error. `--json` prints `[]` for zero findings and a JSON array otherwise; `--sarif` prints a SARIF 2.1.0 document (empty `results` for zero findings) that GitHub code scanning can display. `--help` exits `0`; `--json` and `--sarif` together are a CLI error (`2`).
 
 ```bash
 # Bash 3.2+ (macOS system bash, Linux, Git Bash)
@@ -173,12 +176,14 @@ bash scripts/audit-flutter.sh --target path/to/app  # another project
 bash scripts/audit-flutter.sh --json                # CI: machine-readable, exit 1 on CRITICAL
 bash scripts/audit-flutter.sh --fail-on HIGH        # also block on HIGH pattern matches
 bash scripts/audit-flutter.sh --strict              # block on anything
+bash scripts/audit-flutter.sh --sarif > audit.sarif # GitHub code scanning (upload-sarif)
 ```
 
 ```powershell
 # PowerShell 5.1+ / pwsh
 powershell -ExecutionPolicy Bypass -File scripts/audit-flutter.ps1
 powershell -ExecutionPolicy Bypass -File scripts/audit-flutter.ps1 -Target path\to\app -Json -FailOn HIGH
+powershell -ExecutionPolicy Bypass -File scripts/audit-flutter.ps1 -Sarif > audit.sarif
 ```
 
 Suppress one finding with a comment on the line directly above it (for `K01`, above the line that uses the context, not above the `await`):
@@ -202,6 +207,26 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: bash scripts/audit-flutter.sh --target . --json
+```
+
+```yaml
+# Findings in the GitHub Security tab (code scanning is free for public repositories;
+# private repositories need GitHub Advanced Security). The audit step never fails the job
+# here, the SARIF levels (error / warning / note) carry the severity instead.
+name: Flutter Ultimate SARIF
+on: [push, pull_request]
+permissions:
+  security-events: write
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash scripts/audit-flutter.sh --target . --sarif > flutter-ultimate.sarif || true
+      - uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: flutter-ultimate.sarif
 ```
 
 ```bash
@@ -240,7 +265,7 @@ shellcheck scripts/*.sh hooks/*.sh test/*.sh
 claude plugin validate .
 ```
 
-Fixtures live in `test/fixtures/`: `positive` (every detector fires at least once, 25 findings), `negative` (regression cases that must stay clean), `single` (one finding, JSON array contract), `suppression` (every finding silenced). CI runs the suites on Ubuntu, macOS (`/bin/bash`), and Windows (pwsh 7, Windows PowerShell 5.1, Git Bash).
+Fixtures live in `test/fixtures/`: `positive` (every detector fires at least once, 31 findings), `negative` (regression cases that must stay clean), `single` (one finding, JSON array contract), `suppression` (every finding silenced). CI runs the suites on Ubuntu, macOS (`/bin/bash`), and Windows (pwsh 7, Windows PowerShell 5.1, Git Bash).
 
 `test/decisions.md` holds 21 decision scenarios for the advanced-patterns, GPU, testing and native-bridge references. They are a reviewer checklist, not an automated test: ask the agent each scenario after changing the reference and compare with the expected choice.
 
@@ -252,11 +277,13 @@ Short term
 
 - Case study of the audit on a public open-source Flutter app (false-positive and false-negative counts per rule).
 - More regression fixtures as real-world false positives are reported.
+- Scanner hygiene: `add_finding` deduplicates with a linear scan (fine at a few hundred findings, quadratic beyond); `P12` matches any `stream:` argument, not only `StreamBuilder`'s.
 
 Medium term
 
 - Additional scanner rules only where precision is high (candidates: `UniqueKey()` in `build()`, `addPostFrameCallback` inside `build()`).
 - Decision scenarios run through an eval harness instead of by hand.
+- Further manuals once verified against primary sources: startup time (TTFD, deferred components), adaptive layouts for desktop and web, offline-first and error states. Candidate detectors with acceptable precision: `WidgetsFlutterBinding.ensureInitialized()` missing before a platform call in `main()`, images in list items without `cacheWidth` / `cacheHeight`.
 
 Long term
 
@@ -268,7 +295,7 @@ Long term
 ## Reference Manuals
 
 - **[references/performance-and-rendering.md](references/performance-and-rendering.md)**: Traps P1–P40 (build-method futures, layout thrashing, `MediaQuery` patterns, image memory scaling, isolates).
-- **[references/memory-and-lifecycle.md](references/memory-and-lifecycle.md)**: Memory leaks W1–W20 (controller disposal, stream leaks, singleton closures) and context traps K1–K14 (async gap guards, dialog navigation, `initState` lookups), `AppLifecycleListener`.
+- **[references/memory-and-lifecycle.md](references/memory-and-lifecycle.md)**: Memory leaks W1–W21 (controller disposal, stream leaks, singleton closures) and context traps K1–K14 (async gap guards, dialog navigation, `initState` lookups), `AppLifecycleListener`.
 - **[references/motion-and-ui.md](references/motion-and-ui.md)**: Physics-based animation, custom sliver geometry, Hero shuttles, design tokens.
 - **[references/dart3-and-architecture.md](references/dart3-and-architecture.md)**: Sealed classes, records, pattern matching, the four-tier state ladder, clean architecture boundaries.
 - **[references/production-stack.md](references/production-stack.md)**: `go_router` StatefulShellRoute and auth guards, `flutter_bloc` concurrency transformers, `flutter_secure_storage` hardware keystore options, `hive` encrypted LazyBox budgeting.
@@ -277,10 +304,19 @@ Long term
 - **[references/impeller-and-gpu.md](references/impeller-and-gpu.md)**: Which thread is slow (UI build / layout / paint, raster, GPU wait), the profiling procedure, Impeller availability per platform, compositing cost as hypotheses, custom painting, fragment shaders.
 - **[references/testing-and-reliability.md](references/testing-and-reliability.md)**: Leak tracking in widget tests with `leak_tracker_flutter_testing`, ownership in tests, `pumpAndSettle` and `fake_async`, pending timers, isolation between tests.
 - **[references/native-bridge-and-background.md](references/native-bridge-and-background.md)**: `MethodChannel` / `EventChannel` / Pigeon, the `onListen` / `onCancel` contract, WorkManager and `BGTaskScheduler` facts, background isolates, deep link arriving before the auth state is known.
+- **[references/accessibility.md](references/accessibility.md)**: What the screen reader gets from the semantics tree, a review checklist (`Semantics`, `MergeSemantics`, `ExcludeSemantics`, live regions, focus), WCAG contrast and tap-target numbers as implemented in `flutter_test` (`meetsGuideline`), text scaling with `TextScaler`, the manual pass with TalkBack / VoiceOver.
 
 ---
 
 ## Changelog
+
+### v1.8.0 (2026-11-05)
+- **Two detectors**: `W21` (`SingleTickerProviderStateMixin` with two or more `vsync: this`; the SDK asserts "multiple tickers were created" in debug and overwrites the first `Ticker` in release, since `_ticker` is never cleared) and `W05` (`.listen()` / `.addListener()` in `didChangeDependencies()` without tearing down the previous registration in the same method; HIGH, the catalog's W5). Both in both scanners with positive, negative and suppression fixtures; the run-once guard `if (!_initialized) { _initialized = true; ... }` from the private app is a negative fixture.
+- **SARIF output**: `--sarif` / `-Sarif` writes a SARIF 2.1.0 document for GitHub code scanning (rules, levels error / warning / note, forward-slash URIs, valid empty document). The two scanners' SARIF is diffed in the test suite; `tool.driver.version` must equal the plugin version or the suite fails.
+- **K01 precision**: `context.read|watch|select|push|pop|go` must now be a call (`context.goNamed(...)`, `context.push<void>(...)`); a property such as `context.googleAnalyticsId` after an `await` is no longer reported. LocalSend, Immich and the private app show no change in K01 counts; a positive fixture covers `goNamed`.
+- **CLI**: `--help` exits `0` on stdout (was `2` on stderr); `find` prunes `build`, `.dart_tool` and `.git` instead of walking them.
+- **`/flutter-ultimate:audit`** runs the scanner from the installed plugin (`${CLAUDE_PLUGIN_ROOT}`), pre-approved through `allowed-tools`, instead of a `scripts/` path that does not exist in the audited repository; when the script still cannot run, the command stops and says so instead of rebuilding the detectors with grep (a session did exactly that and over-counted K01 by 30 and W01 by 8 on the private app).
+- **`references/accessibility.md`**: semantics checklist, WCAG contrast and tap-target constants read from `flutter_test`, text scaling, the four `meetsGuideline` tests, manual pass. Eleven manuals, 75 catalogued traps; counts corrected in README, `SKILL.md` and the repository description (which still said "seven").
 
 ### v1.7.0 (2026-11-05)
 - **`--fail-on <severity>` (`-FailOn`)**: the exit code is 1 only for findings at or above the threshold, default `CRITICAL`. HIGH rules (P07, P12, P19, P21, P32, LINT-02) are pattern matches and no longer block CI by default; `--fail-on HIGH` restores the old behaviour, `--strict` still fails on anything. Severity table in `SKILL.md` aligned with the scanner (P07 is HIGH everywhere).

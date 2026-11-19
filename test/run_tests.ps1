@@ -174,7 +174,8 @@ try {
 
     # -Disable: listed rules leave every output and the exit code; unknown IDs are a CLI error
     $DisOutput = & $AuditPs1 -Target $PositiveDir -Json -Disable GDPR-01,GDPR-02,GDPR-03,GDPR-04 2>&1
-    $DisJson = @($DisOutput | ConvertFrom-Json)
+    $DisJson = $DisOutput | ConvertFrom-Json
+    $DisJson = @($DisJson)
     $DisGdpr = @($DisJson | Where-Object { $_.trapId -like "GDPR-*" }).Count
     Report-Assert "-Disable GDPR-01,GDPR-02,GDPR-03,GDPR-04 removes every GDPR-* finding and nothing else" ($DisGdpr -eq 0 -and $DisJson.Count -eq ($ExpectedCount - 4)) "GDPR: $DisGdpr, total: $($DisJson.Count)"
     $null = & $AuditPs1 -Target $PositiveDir -Json -Disable P03,NOPE 2>&1

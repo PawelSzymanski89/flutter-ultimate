@@ -546,3 +546,76 @@ class _OnceGuardWidgetState extends State<OnceGuardWidget> {
   @override
   Widget build(BuildContext context) => const SizedBox.shrink();
 }
+
+// Regression (1.9.0): the widened K01 cases behind a mounted guard, an else branch of the block
+// that holds the await, a Navigator property that is not a call, a Timer released with "!.", and
+// a ConsumerState that disposes its controller.
+class K01WidenedCleanWidget extends StatefulWidget {
+  const K01WidenedCleanWidget({super.key});
+
+  @override
+  State<K01WidenedCleanWidget> createState() => _K01WidenedCleanWidgetState();
+}
+
+class _K01WidenedCleanWidgetState extends State<K01WidenedCleanWidget> {
+  Timer? _timer;
+
+  Future<bool> confirm() async => true;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {});
+  }
+
+  Future<void> awaitInCondition() async {
+    if (await confirm()) {
+      if (!mounted) return;
+      Navigator.pop(context);
+    }
+  }
+
+  Future<void> replaceNamed() async {
+    await Future<void>.value();
+    debugPrint(Navigator.defaultRouteName);
+    if (!context.mounted) return;
+    Navigator.pushReplacementNamed(context, '/x');
+  }
+
+  Future<void> elseOfAwaitBlock(bool quick) async {
+    if (quick) {
+      await Future<void>.value();
+    } else {
+      Navigator.of(context).pop();
+    }
+  }
+
+  @override
+  void dispose() {
+    _timer!.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => const SizedBox.shrink();
+}
+
+class RiverpodCleanWidget extends ConsumerStatefulWidget {
+  const RiverpodCleanWidget({super.key});
+
+  @override
+  ConsumerState<RiverpodCleanWidget> createState() => _RiverpodCleanWidgetState();
+}
+
+class _RiverpodCleanWidgetState extends ConsumerState<RiverpodCleanWidget> {
+  final _name = TextEditingController();
+
+  @override
+  void dispose() {
+    _name.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => TextField(controller: _name);
+}

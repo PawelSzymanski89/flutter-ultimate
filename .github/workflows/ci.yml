@@ -8,6 +8,9 @@ on:
     branches: [ main, master ]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   shellcheck:
     name: ShellCheck Lint
@@ -56,12 +59,14 @@ jobs:
 
       - name: Validate Plugin via Claude Code CLI
         run: |
-          npx -y @anthropic-ai/claude-code plugin validate .
+          npx -y @anthropic-ai/claude-code@2.1.328 plugin validate .
 
   test-unix:
     name: Test on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     needs: [ shellcheck, validate-plugin ]
+    env:
+      FU_REQUIRE_PWSH: 1
     strategy:
       fail-fast: false
       matrix:
@@ -114,5 +119,7 @@ jobs:
 
       - name: Run test suite (Git Bash)
         shell: bash
+        env:
+          FU_REQUIRE_PWSH: 1
         run: |
           ./test/run_tests.sh

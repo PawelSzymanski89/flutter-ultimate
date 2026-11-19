@@ -254,3 +254,69 @@ class _RepeatedRegistrationWidgetState extends State<RepeatedRegistrationWidget>
   @override
   Widget build(BuildContext context) => const SizedBox.shrink();
 }
+
+// K01 (1.9.0): await after "(" or "!", any Navigator method (also with a type argument), and an
+// else branch of a block that starts after the await instead of holding it.
+class K01WidenedWidget extends StatefulWidget {
+  const K01WidenedWidget({super.key});
+
+  @override
+  State<K01WidenedWidget> createState() => _K01WidenedWidgetState();
+}
+
+class _K01WidenedWidgetState extends State<K01WidenedWidget> {
+  Future<bool> confirm() async => true;
+
+  Future<void> awaitInCondition() async {
+    if (await confirm()) { Navigator.pop(context); }
+  }
+
+  Future<void> negatedAwait() async {
+    if (!await confirm()) {
+      return;
+    }
+    Navigator.pop(context);
+  }
+
+  Future<void> replaceNamed() async {
+    await Future<void>.value();
+    Navigator.pushReplacementNamed(context, '/x');
+  }
+
+  Future<void> removeUntil() async {
+    await Future<void>.value();
+    Navigator.pushNamedAndRemoveUntil(context, '/x', (_) => false);
+  }
+
+  Future<void> typedPush() async {
+    await Future<void>.value();
+    Navigator.push<bool>(context, MaterialPageRoute<bool>(builder: (_) => const SizedBox()));
+  }
+
+  Future<void> elseAfterAwait() async {
+    final r = await showDialog<bool>(context: context, builder: (_) => const SizedBox());
+    if (r == null) {
+      debugPrint('x');
+    } else {
+      Navigator.pop(context, r);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => const SizedBox.shrink();
+}
+
+// W01 (1.9.0): a Riverpod ConsumerState is scanned like a State.
+class RiverpodFormWidget extends ConsumerStatefulWidget {
+  const RiverpodFormWidget({super.key});
+
+  @override
+  ConsumerState<RiverpodFormWidget> createState() => _RiverpodFormWidgetState();
+}
+
+class _RiverpodFormWidgetState extends ConsumerState<RiverpodFormWidget> {
+  final _name = TextEditingController();
+
+  @override
+  Widget build(BuildContext context) => TextField(controller: _name);
+}

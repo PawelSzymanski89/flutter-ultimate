@@ -93,6 +93,13 @@ else
   fi
 fi
 
+# Every references/<name>.md cited by the skill, the session mode and the commands exists at the repository root
+missing_refs=""
+while IFS= read -r ref; do
+  [[ -f "$PROJECT_ROOT/$ref" ]] || missing_refs+="$ref "
+done < <(cat "$SKILL_PATH" "$PROJECT_ROOT/hooks/mode.md" "$PROJECT_ROOT"/commands/*.md | grep -oE 'references/[A-Za-z0-9_.-]+\.md' | sort -u)
+report_assert "Every references/*.md cited in SKILL.md, hooks/mode.md and commands/*.md exists" $(( ${#missing_refs} == 0 ? 1 : 0 )) "Missing: $missing_refs"
+
 # Validate Plugin Packaging
 PLUGIN_MANIFEST="$PROJECT_ROOT/.claude-plugin/plugin.json"
 PLUGIN_SKILL="$PROJECT_ROOT/skills/flutter-ultimate/SKILL.md"
@@ -104,6 +111,21 @@ if [[ -f "$PLUGIN_MANIFEST" ]]; then
 else
   report_assert "plugin.json exists" 0 "Missing plugin.json"
 fi
+
+set +e
+sh_version=$(sed -nE 's/^SCRIPT_VERSION="([^"]+)"$/\1/p' "$PROJECT_ROOT/scripts/audit-flutter.sh")
+# shellcheck disable=SC2016
+ps_version=$(sed -nE 's/^\$ScriptVersion = "([^"]+)".*$/\1/p' "$PROJECT_ROOT/scripts/audit-flutter.ps1")
+# shellcheck disable=SC2016
+version_check=$(node -e '
+  const [plugin, market, sh, ps] = process.argv.slice(1);
+  const p = require(plugin).version, m = require(market);
+  const all = [p, m.metadata.version, ...m.plugins.map(x => x.version), sh, ps];
+  if (all.some(v => v !== p)) { console.error("plugin.json, marketplace.json, audit-flutter.sh, audit-flutter.ps1: " + all.join(" ")); process.exit(1); }
+' "$PLUGIN_MANIFEST" "$PROJECT_ROOT/.claude-plugin/marketplace.json" "$sh_version" "$ps_version" 2>&1)
+version_exit=$?
+set -e
+report_assert "Version in plugin.json equals marketplace.json and both scanners" $(( version_exit == 0 ? 1 : 0 )) "$version_check"
 
 MARKETPLACE_MANIFEST="$PROJECT_ROOT/.claude-plugin/marketplace.json"
 if [[ -f "$MARKETPLACE_MANIFEST" ]]; then
@@ -150,14 +172,14 @@ HOOK_ACTIVATE="$PROJECT_ROOT/hooks/activate.js"
 if [[ -f "$HOOK_ACTIVATE" ]]; then
   report_assert "hooks/activate.js exists" 1 ""
 
-  act_non_flutter=$(node "$HOOK_ACTIVATE" 2>&1 || true)
-  if echo "$act_non_flutter" | grep -q "/flutter-ultimate:review"; then
-    report_assert "activate.js in non-Flutter directory reports namespaced commands" 1 ""
+  act_non_flutter=$(cd "$PROJECT_ROOT" && { node "$HOOK_ACTIVATE" 2>&1 || true; })
+  if [[ -z "$act_non_flutter" ]]; then
+    report_assert "activate.js in non-Flutter directory prints nothing" 1 ""
   else
-    report_assert "activate.js in non-Flutter directory reports namespaced commands" 0 "Output: $act_non_flutter"
+    report_assert "activate.js in non-Flutter directory prints nothing" 0 "Output: $act_non_flutter"
   fi
 
-  act_flutter=$(cd "$PROJECT_ROOT/test/fixtures/positive" && node "$HOOK_ACTIVATE" 2>&1 || true)
+  act_flutter=$(cd "$PROJECT_ROOT/test/fixtures/positive" && { node "$HOOK_ACTIVATE" 2>&1 || true; })
   if echo "$act_flutter" | grep -q "FLUTTER ULTIMATE MODE ACTIVE"; then
     report_assert "activate.js in Flutter workspace activates full mode" 1 ""
   else
@@ -220,6 +242,37 @@ for trap_id in "${expected_traps[@]}"; do
   fi
 done
 
+# Full records (severity, trapId, file, line, message) must equal test/fixtures/positive/expected.json
+EXPECTED_JSON="$POS_DIR/expected.json"
+# shellcheck disable=SC2016
+NORM_JS='
+  const fs = require("fs");
+  const norm = raw => JSON.parse(raw).map(r => JSON.stringify([String(r.severity), String(r.trapId), String(r.file).replace(/\\/g, "/"), Number(r.line), String(r.message)])).sort();
+'
+# shellcheck disable=SC2016
+EXPECTED_COUNT=$(node -e "$NORM_JS"' console.log(norm(fs.readFileSync(process.argv[1], "utf8")).length);' "$EXPECTED_JSON")
+set +e
+# shellcheck disable=SC2016
+expected_check=$(node -e "$NORM_JS"'
+  const exp = norm(fs.readFileSync(process.argv[1], "utf8")), got = norm(process.argv[2]);
+  const missing = exp.filter(x => !got.includes(x)), extra = got.filter(x => !exp.includes(x));
+  if (exp.length !== got.length || missing.length || extra.length) { console.error("expected " + exp.length + ", got " + got.length + "\nmissing: " + missing.join("\n") + "\nextra: " + extra.join("\n")); process.exit(1); }
+' "$EXPECTED_JSON" "$pos_output" 2>&1)
+expected_exit=$?
+set -e
+report_assert "Positive fixture: $EXPECTED_COUNT findings equal to expected.json (severity, trapId, file, line, message)" $(( expected_exit == 0 ? 1 : 0 )) "$expected_check"
+
+# --disable: listed rules leave every output and the exit code; unknown IDs are a CLI error
+set +e
+dis_output=$("$AUDIT_SH" --target "$POS_DIR" --json --disable GDPR-01,GDPR-02,GDPR-03,GDPR-04 2>&1)
+"$AUDIT_SH" --target "$POS_DIR" --json --disable P03,NOPE >/dev/null 2>&1
+dis_unknown_exit=$?
+set -e
+dis_gdpr=$(printf '%s' "$dis_output" | grep -c '"trapId":"GDPR-' || true)
+dis_count=$(printf '%s' "$dis_output" | grep -c '"trapId"' || true)
+report_assert "--disable GDPR-01,GDPR-02,GDPR-03,GDPR-04 removes every GDPR-* finding and nothing else" $(( dis_gdpr == 0 && dis_count == EXPECTED_COUNT - 4 ? 1 : 0 )) "GDPR: $dis_gdpr, total: $dis_count"
+report_assert "--disable with an unknown rule ID exits with code 2" $(( dis_unknown_exit == 2 ? 1 : 0 )) "exit=$dis_unknown_exit"
+
 # 4. Test Single-Finding Contract & Strict Mode
 printf '\n%b[4/6] Testing Single-Finding JSON Array Contract & Strict Mode...%b\n' "$CYAN" "$NC"
 SINGLE_DIR="$PROJECT_ROOT/test/fixtures/single"
@@ -233,6 +286,18 @@ set -e
 
 report_assert "Single finding (MEDIUM) without --strict exits with code 0" $(( single_exit == 0 ? 1 : 0 )) "Exit: $single_exit"
 report_assert "Single finding with --strict exits with code 1" $(( single_strict_exit == 1 ? 1 : 0 )) "$single_strict_output"
+
+set +e
+"$AUDIT_SH" --target "$SINGLE_DIR" --json --fail-on HIGH >/dev/null 2>&1
+failon_high_exit=$?
+"$AUDIT_SH" --target "$SINGLE_DIR" --json --fail-on LOW >/dev/null 2>&1
+failon_low_exit=$?
+"$AUDIT_SH" --target "$SINGLE_DIR" --json --fail-on BOGUS >/dev/null 2>&1
+failon_bad_exit=$?
+set -e
+report_assert "Single finding (MEDIUM) with --fail-on HIGH exits with code 0" $(( failon_high_exit == 0 ? 1 : 0 )) "exit=$failon_high_exit"
+report_assert "Single finding (MEDIUM) with --fail-on LOW exits with code 1" $(( failon_low_exit == 1 ? 1 : 0 )) "exit=$failon_low_exit"
+report_assert "--fail-on with an invalid value exits with code 2" $(( failon_bad_exit == 2 ? 1 : 0 )) "exit=$failon_bad_exit"
 
 # Validate that single finding outputs a valid JSON array enclosing an object
 is_json_array=0
@@ -277,6 +342,18 @@ sarif_neg_exit=$?
 set -e
 report_assert "Negative fixture --sarif is a valid document with empty results" $(( sarif_neg_exit == 0 ? 1 : 0 )) "$sarif_neg_check"
 report_assert "--json --sarif together exit with code 2" $(( both_modes_exit == 2 ? 1 : 0 )) "exit=$both_modes_exit"
+
+set +e
+sarif_prefixed=$("$AUDIT_SH" --target "$POS_DIR" --sarif --uri-prefix './app//' 2>&1)
+# shellcheck disable=SC2016
+prefix_check=$(node -e '
+  const uris = raw => JSON.parse(raw).runs[0].results.map(r => r.locations[0].physicalLocation.artifactLocation.uri);
+  const plain = uris(process.argv[1]), pre = uris(process.argv[2]);
+  if (plain.length === 0 || plain.length !== pre.length || pre.some((u, i) => u !== "app/" + plain[i])) { console.error(pre.slice(0, 3).join(" ")); process.exit(1); }
+' "$sarif_pos" "$sarif_prefixed" 2>&1)
+prefix_exit=$?
+set -e
+report_assert "--sarif --uri-prefix ./app// prefixes every artifactLocation.uri with app/" $(( prefix_exit == 0 ? 1 : 0 )) "$prefix_check"
 
 # 5. Test Negative & Suppression Fixtures
 printf '\n%b[5/6] Testing Negative & Suppression Fixtures...%b\n' "$CYAN" "$NC"
@@ -355,7 +432,7 @@ if [[ -n "$PWSH_CMD" ]]; then
   ' "$pos_output" "$ps_pos" 2>&1)
   diff_pos_exit=$?
 
-  report_assert "Positive fixture parity: 31 findings with zero discrepancies in (severity, trapId, file, line, message)" $(( diff_pos_exit == 0 ? 1 : 0 )) "$diff_pos"
+  report_assert "Positive fixture parity: $EXPECTED_COUNT findings with zero discrepancies in (severity, trapId, file, line, message)" $(( diff_pos_exit == 0 ? 1 : 0 )) "$diff_pos"
 
   # shellcheck disable=SC2016
   diff_neg=$(node -e '
@@ -411,8 +488,26 @@ if [[ -n "$PWSH_CMD" ]]; then
   diff_sarif_exit=$?
   set -e
   report_assert "Positive fixture SARIF parity: identical documents" $(( diff_sarif_exit == 0 ? 1 : 0 )) "$diff_sarif"
+
+  set +e
+  ps_sarif_prefixed=$("$PWSH_CMD" -NoProfile -ExecutionPolicy Bypass -File "$AUDIT_PS1" -Target "$POS_DIR" -Sarif -UriPrefix './app//' 2>&1)
+  ps_dis=$("$PWSH_CMD" -NoProfile -ExecutionPolicy Bypass -File "$AUDIT_PS1" -Target "$POS_DIR" -Json -Disable GDPR-01,GDPR-02,GDPR-03,GDPR-04 2>&1)
+  # shellcheck disable=SC2016
+  diff_flags=$(node -e '
+    const doc = raw => JSON.stringify(JSON.parse(raw));
+    const recs = raw => JSON.parse(raw).map(r => JSON.stringify([r.severity, r.trapId, String(r.file).replace(/\\/g, "/"), Number(r.line), r.message])).sort().join("\n");
+    if (doc(process.argv[1]) !== doc(process.argv[2])) { console.error("--uri-prefix SARIF differs"); process.exit(1); }
+    if (recs(process.argv[3]) !== recs(process.argv[4])) { console.error("--disable JSON differs"); process.exit(1); }
+  ' "$sarif_prefixed" "$ps_sarif_prefixed" "$dis_output" "$ps_dis" 2>&1)
+  diff_flags_exit=$?
+  set -e
+  report_assert "--disable and --uri-prefix parity: identical JSON and SARIF" $(( diff_flags_exit == 0 ? 1 : 0 )) "$diff_flags"
 else
-  printf '  %b[SKIP]%b PowerShell not found; skipping cross-platform parity assertion\n' "$YELLOW" "$NC"
+  if [[ "${FU_REQUIRE_PWSH:-}" == "1" ]]; then
+    report_assert "PowerShell available for the parity assertions (FU_REQUIRE_PWSH=1)" 0 "Neither pwsh nor powershell.exe found on PATH"
+  else
+    printf '  %b[SKIP]%b PowerShell not found; skipping cross-platform parity assertion\n' "$YELLOW" "$NC"
+  fi
 fi
 
 # Summary

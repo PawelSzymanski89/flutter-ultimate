@@ -25,12 +25,13 @@ physics-driven motion, and enforce native GDPR/RODO privacy defaults.
 
 All Flutter engineering under this skill follows the three-level progressive disclosure of the **Agent Skills** format (agentskills.io):
 1. **Tier 1 (Catalog Routing)**: Compact frontmatter for immediate intent matching.
-2. **Tier 2 (Operational Flow - This File)**: High-level execution workflows, decision matrices, and safety checklists (under 450 lines).
+2. **Tier 2 (Operational Flow - This File)**: High-level execution workflows, decision matrices, and safety checklists (under 500 lines).
 3. **Tier 3 (Deep Knowledge & Executables)**:
    - Deep specifications in `references/*.md` loaded on demand via `Read` or `Grep`.
    - Linter profile asset in `assets/analysis_options.yaml`.
    - Deterministic static analysis scripts in `scripts/audit-flutter.ps1` and `scripts/audit-flutter.sh`.
    - Dedicated slash commands in `commands/audit.md` and `commands/review.md`.
+   - Path rule: in a plugin install the manuals and scripts live in `${CLAUDE_PLUGIN_ROOT}/references/` and `${CLAUDE_PLUGIN_ROOT}/scripts/`; in a standalone install (Mode B, where that variable is not substituted) they sit in `references/` and `scripts/` next to this file.
 
 ### Five Non-Negotiable Core Laws
 1. **60/120 FPS Frame Budget**: Every frame must complete within 16.6ms (60 FPS) or 8.33ms (120 FPS ProMotion). Keep expensive layout calculations, widget rebuilds, and I/O off the UI isolate.
@@ -239,12 +240,12 @@ The scanner ships with this skill, not with the audited repository. Run it again
 
 **On Linux / macOS (Bash 3.2+):**
 ```bash
-bash ${CLAUDE_PLUGIN_ROOT}/scripts/audit-flutter.sh --target . --json
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/audit-flutter.sh" --target . --json
 ```
 
 **On Windows (PowerShell 5.1/7+):**
 ```powershell
-powershell -ExecutionPolicy Bypass -File ${CLAUDE_PLUGIN_ROOT}/scripts/audit-flutter.ps1 -Target . -Json
+powershell -ExecutionPolicy Bypass -File "${CLAUDE_PLUGIN_ROOT}/scripts/audit-flutter.ps1" -Target . -Json
 ```
 
 Installed standalone (no plugin root), the scripts sit next to this file under `scripts/`. `--sarif` / `-Sarif` writes SARIF 2.1.0 for GitHub code scanning instead of JSON.
@@ -257,7 +258,7 @@ Never rebuild the detectors with `grep` or by reading files; an imitation produc
 | Severity | Impact | Required Action |
 | :--- | :--- | :--- |
 | **CRITICAL** | Runtime crashes, memory leaks in State (`W01`, `W03`, `W06`, `W14`, `W21`), unmounted context access across await (`K01`), unclosed sinks. | Must be resolved immediately before merging or shipping. |
-| **HIGH** | Pattern-matched frame-budget risks: `P07`, `P12`, `P19`, `P21`, `P32`, repeated registration in `didChangeDependencies` (`W05`), outdated linter `LINT-02`. Not a CI blocker by default (`--fail-on`). | Must be optimized to ensure 60/120 FPS pipeline. |
+| **HIGH** | Pattern-matched frame-budget risks: `P07`, `P12`, `P19`, `P21`, `P32`, repeated registration in `didChangeDependencies` (`W05`), outdated linter `LINT-02`. Not a CI blocker by default (`--fail-on`). | A place to look, not a confirmed defect: check, then measure in DevTools. |
 | **MEDIUM** | Missing `const` constructors, fractional `Opacity` (`P26`), missing linter config (`LINT-01`). | Refactor during scheduled quality pass. |
 | **LOW** | Minor style cleanups, ClipRRect optimization (`P27`), helper method extraction (`P03`), redundant containers. | Cleanup when touching file. |
 
@@ -319,4 +320,4 @@ An engineering or audit task is complete ONLY when all applicable criteria pass:
 - [ ] **Battery & Lifecycle Wired**: Long-running timers or continuous updates pause when the app transitions to background via `AppLifecycleListener`.
 - [ ] **Privacy Defaults Intact**: Android and iOS manifests disable automatic tracking until user consent is captured.
 - [ ] **Linter Package Up-to-Date**: `pubspec.yaml` declares a current linter package (`flutter_lints` 5.x or newer, or `very_good_analysis`) in `dev_dependencies`.
-- [ ] **Static Audit Passes**: Executing `scripts/audit-flutter.ps1` or `scripts/audit-flutter.sh` yields exit code 0 (zero CRITICAL/HIGH findings).
+- [ ] **Static Audit Passes**: Executing `scripts/audit-flutter.ps1` or `scripts/audit-flutter.sh` with `--fail-on HIGH` / `-FailOn HIGH` exits with code 0.

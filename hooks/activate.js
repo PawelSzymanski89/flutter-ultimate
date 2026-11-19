@@ -27,13 +27,10 @@ function isFlutterProject(dir) {
 
 const active = isFlutterProject(cwd);
 
+// Outside a Flutter project print nothing: SessionStart output lands in every session's context.
 if (active) {
   const modeFile = path.join(here, 'mode.md');
   if (fs.existsSync(modeFile)) {
     process.stdout.write(fs.readFileSync(modeFile, 'utf8'));
   }
-} else {
-  process.stdout.write(
-    'flutter-ultimate: loaded. Full mode activates automatically in Flutter workspaces. Commands available: /flutter-ultimate:review, /flutter-ultimate:audit.\n'
-  );
 }

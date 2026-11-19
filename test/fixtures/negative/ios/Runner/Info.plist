@@ -5,8 +5,8 @@
     <key>CFBundleName</key>
     <string>negative_fixture</string>
     <key>FIREBASE_ANALYTICS_COLLECTION_ENABLED</key>
-    <false/>
+    <false />
     <key>FirebaseCrashlyticsCollectionEnabled</key>
-    <false/>
+    <false />
 </dict>
 </plist>

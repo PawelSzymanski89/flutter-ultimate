@@ -28,7 +28,7 @@ Like it? [Buy me a coffee ☕](https://buymeacoffee.com/cygan)
 - [Installation](#installation)
 - [Deterministic Static Code Audit](#deterministic-static-code-audit)
   - [Limitations](#limitations)
-  - [Active Detectors](#active-detectors-19-rules)
+  - [Active Detectors](#active-detectors-21-rules)
   - [Running the Audit](#running-the-audit)
   - [CI and Pre-commit Examples](#ci-and-pre-commit-examples)
   - [Measured on Real Codebases](#measured-on-real-codebases)
@@ -137,7 +137,9 @@ The statusline needs no `node`. Claude Code accepts one statusLine command; to k
 
 - The scanners are text and brace-depth heuristics, **not** a Dart AST parser. Braces inside string literals, block comments and unusual formatting skew them.
 - False positives and false negatives are possible. Every `K01` and `W*` message says what was and was not verified.
-- **K01** scans the function body that contains the `await` (nearest non-control-flow block opener). The awaited statement's own argument list is skipped, so callbacks inside `await showDialog(...)` are not reported; an `else` branch of the block that holds the `await` is skipped; an arrow closure `() async => await x` is not scanned. A guard placed before the `await` does not count. `setState` is matched only as `State.setState`, not `something.setState(...)`. Files under top-level `test/` and `integration_test/` are not scanned.
+- **K01** scans the function body that contains the `await` (nearest non-control-flow block opener), including code after the awaited expression on the same line (`if (await confirm()) { Navigator.pop(context); }`). The awaited statement's own argument list is skipped, so callbacks inside `await showDialog(...)` are not reported; only the `else` branch of the block that holds the `await` is skipped (an `else` of an `if` that starts after the `await` is scanned); an arrow closure `() async => await x` is not scanned. A guard placed before the `await` does not count. `setState` is matched only as `State.setState`, not `something.setState(...)`; any `Navigator.<method>(...)` call counts, with or without a type argument. Files under top-level `test/` and `integration_test/` are not scanned.
+- **K01 does not see**: context used in a `.then(...)` / `.catchError(...)` callback (no `await`), `context` passed as an argument to another function or helper after the `await` (`showError(context)`), context used in a method that the async function calls, and lookups other than the listed ones (`ScaffoldMessenger.maybeOf`, `Provider.of`, custom `of(context)`). Only the first unguarded use after each `await` is reported.
+- **W01 / W03 / W06 / W14 / W05 / W21** read classes that extend `State<...>` or Riverpod's `ConsumerState<...>`; other bases (`HookState`, custom `State` subclasses) are not scanned. A release is matched as `x.dispose()`, `x?.dispose()` or `x!.dispose()` (same for `cancel()` / `close()`).
 - **W01 / W03 / W06 / W14** treat a resource as State-owned when it is initialised at field level or assigned to a declared field; locals inside methods are ignored (clean them up with `try/finally`). A release counts only inside `dispose()` or inside a method that `dispose()` calls directly. Not tracked: anonymous `Timer(...)` / `.listen(...)` without assignment, tear-offs (`disposables.add(_c.dispose)`), bulk loops, releases delegated to mixins or managers. Use `// flutter-ultimate:ignore W01 <reason>` for those.
 - **W05** reads only the body of `didChangeDependencies()`: a `?.cancel()`, `removeListener()`, `??=` or `== null` check on the same variable in that method, or a run-once flag (`if (!_done) { _done = true; ... }`), silences it. A guard that lives in a helper method is not seen. `addListener()` on a call result (`context.read<T>().addListener(...)`) is always reported, since the previous listener cannot be removed from a receiver that is not kept. **W21** counts `vsync: this` textually inside the `State` class, including a controller that is disposed and recreated (which also throws under `SingleTickerProviderStateMixin`).
 - Treat findings as strong signals, not as proof. Verify CRITICAL findings in code review and performance findings with Flutter DevTools.
@@ -169,6 +171,17 @@ The statusline needs no `node`. Claude Code accepts one statusLine command; to k
 
 Exit codes: `0` nothing at or above the threshold, `1` a finding at or above `--fail-on` (default `CRITICAL`; `--strict` means any finding), `2` CLI error. `--json` prints `[]` for zero findings and a JSON array otherwise; `--sarif` prints a SARIF 2.1.0 document (empty `results` for zero findings) that GitHub code scanning can display. `--help` exits `0`; `--json` and `--sarif` together are a CLI error (`2`).
 
+| Bash | PowerShell | Meaning |
+| :--- | :--- | :--- |
+| `--target <dir>` | `-Target <dir>` | Project root to scan (default: current directory). |
+| `--json` | `-Json` | JSON array of findings. |
+| `--sarif` | `-Sarif` | SARIF 2.1.0 document (exclusive with `--json`). |
+| `--fail-on <severity>` | `-FailOn <severity>` | Exit `1` on a finding at or above `CRITICAL` (default), `HIGH`, `MEDIUM` or `LOW`; any other value exits `2`. |
+| `--strict` | `-Strict` | Exit `1` on any finding. |
+| `--disable <ID[,ID...]>` | `-Disable <ID[,ID...]>` | Leave these rules (any ID from the table above, including `GDPR-*` and `LINT-*`) out of the text, JSON and SARIF output and out of the exit code. An unknown ID exits `2`. |
+| `--uri-prefix <dir>` | `-UriPrefix <dir>` | Prepend `<dir>/` to every SARIF `artifactLocation.uri` (forward slashes, no double slashes). Use it when `--target` is a subdirectory of the repository, since code scanning resolves paths from the repository root. |
+| `--help` | `Get-Help` | Usage. |
+
 ```bash
 # Bash 3.2+ (macOS system bash, Linux, Git Bash)
 bash scripts/audit-flutter.sh                       # current directory
@@ -177,6 +190,7 @@ bash scripts/audit-flutter.sh --json                # CI: machine-readable, exit
 bash scripts/audit-flutter.sh --fail-on HIGH        # also block on HIGH pattern matches
 bash scripts/audit-flutter.sh --strict              # block on anything
 bash scripts/audit-flutter.sh --sarif > audit.sarif # GitHub code scanning (upload-sarif)
+bash scripts/audit-flutter.sh --disable P27,GDPR-01 # project decided to accept these
 ```
 
 ```powershell
@@ -184,6 +198,7 @@ bash scripts/audit-flutter.sh --sarif > audit.sarif # GitHub code scanning (uplo
 powershell -ExecutionPolicy Bypass -File scripts/audit-flutter.ps1
 powershell -ExecutionPolicy Bypass -File scripts/audit-flutter.ps1 -Target path\to\app -Json -FailOn HIGH
 powershell -ExecutionPolicy Bypass -File scripts/audit-flutter.ps1 -Sarif > audit.sarif
+powershell -ExecutionPolicy Bypass -File scripts/audit-flutter.ps1 -Disable P27,GDPR-01
 ```
 
 Suppress one finding with a comment on the line directly above it (for `K01`, above the line that uses the context, not above the `await`):
@@ -229,6 +244,12 @@ jobs:
           sarif_file: flutter-ultimate.sarif
 ```
 
+```yaml
+# Flutter app in a subdirectory (monorepo): scan app/, report paths from the repository root.
+# Same workflow as above, only the audit step changes.
+      - run: bash scripts/audit-flutter.sh --target app --sarif --uri-prefix app > flutter-ultimate.sarif || true
+```
+
 ```bash
 # .git/hooks/pre-commit (chmod +x); blocks the commit on CRITICAL findings
 #!/usr/bin/env bash
@@ -265,7 +286,9 @@ shellcheck scripts/*.sh hooks/*.sh test/*.sh
 claude plugin validate .
 ```
 
-Fixtures live in `test/fixtures/`: `positive` (every detector fires at least once, 31 findings), `negative` (regression cases that must stay clean), `single` (one finding, JSON array contract), `suppression` (every finding silenced). CI runs the suites on Ubuntu, macOS (`/bin/bash`), and Windows (pwsh 7, Windows PowerShell 5.1, Git Bash).
+Fixtures live in `test/fixtures/`: `positive` (every detector fires at least once; the full expected output is `positive/expected.json`, compared record by record), `negative` (regression cases that must stay clean), `single` (one finding, JSON array contract), `suppression` (every finding silenced). CI runs the suites on Ubuntu, macOS (`/bin/bash`), and Windows (pwsh 7, Windows PowerShell 5.1, Git Bash). The Bash suite skips the Bash <-> PowerShell parity block when no PowerShell is installed; with `FU_REQUIRE_PWSH=1` (set in CI) that is a failure instead.
+
+After a detector change, regenerate the expected output and review the diff: `bash scripts/audit-flutter.sh --target test/fixtures/positive --json > test/fixtures/positive/expected.json`.
 
 `test/decisions.md` holds 21 decision scenarios for the advanced-patterns, GPU, testing and native-bridge references. They are a reviewer checklist, not an automated test: ask the agent each scenario after changing the reference and compare with the expected choice.
 
@@ -275,7 +298,7 @@ Fixtures live in `test/fixtures/`: `positive` (every detector fires at least onc
 
 Short term
 
-- Case study of the audit on a public open-source Flutter app (false-positive and false-negative counts per rule).
+- False-negative counts per rule (the case study measured false positives only).
 - More regression fixtures as real-world false positives are reported.
 - Scanner hygiene: `add_finding` deduplicates with a linear scan (fine at a few hundred findings, quadratic beyond); `P12` matches any `stream:` argument, not only `StreamBuilder`'s.
 
@@ -309,6 +332,16 @@ Long term
 ---
 
 ## Changelog
+
+### v1.9.0 (2026-11-19)
+- **K01 reports more cases**: an `await` after `(` or `!` (`if (await confirm())`, `if (!await ok())`) is recognised, and code after the awaited expression on the same line is scanned; any `Navigator.<method>(...)` call counts, with an optional type argument (`pushReplacementNamed`, `pushNamedAndRemoveUntil`, `push<bool>`), instead of a fixed list of seven methods; an `else` branch is skipped only when it belongs to the block that holds the `await`, so `} else { Navigator.pop(context, r); }` of an `if` that starts after the `await` is reported. Positive and negative fixtures for each case.
+- **W01 / W03 / W05 / W06 / W14 / W21** also read Riverpod `ConsumerState<...>` classes. **W06 (and W01 / W03 / W14) report less**: a release written as `_timer!.cancel()` now counts.
+- **GDPR-01 / GDPR-02** accept `android:value` before `android:name` in the same `<meta-data>` tag; **GDPR-03 / GDPR-04** accept `<false />`. The negative fixture uses both forms.
+- **New flags**: `--disable <ID[,ID...]>` (`-Disable`) removes the listed rules from text, JSON and SARIF output and from the exit code, for every rule including `GDPR-*` and `LINT-*`; an unknown ID exits `2`. `--uri-prefix <dir>` (`-UriPrefix`) prefixes SARIF `artifactLocation.uri` for a `--target` below the repository root. An invalid `-FailOn` value now exits `2` in PowerShell as in Bash (was `1`).
+- **Text output**: the zero-findings line no longer claims there are no traps; it says the heuristic rules found nothing and points to Limitations.
+- **Docs**: `SKILL.md`, `hooks/mode.md` and the commands say where the manuals and scripts are in a plugin install (`${CLAUDE_PLUGIN_ROOT}/references/`, `${CLAUDE_PLUGIN_ROOT}/scripts/`) and in a standalone install; script paths in `SKILL.md` and `/flutter-ultimate:audit` are quoted for plugin paths with spaces; the completion checklist names `--fail-on HIGH` for exit code `0`; the HIGH row of the severity table says "check, then measure" instead of promising a frame rate; the review command drops an invented Dart time window and no longer asks for the guard immediately after the `await`; README Limitations list what K01 does not see; README anchor and roadmap corrected.
+- **Tests**: the positive fixture's full output is pinned in `test/fixtures/positive/expected.json` and compared record by record in both suites; exit codes for `--fail-on HIGH`, `--fail-on LOW` and an invalid value; `--disable` and `--uri-prefix` with Bash <-> PowerShell parity; every `references/*.md` cited by the skill, mode and commands must exist; versions in `plugin.json`, `marketplace.json` and both scanners must match; `FU_REQUIRE_PWSH=1` (set in CI) turns a missing PowerShell into a failure.
+- **Packaging**: the SessionStart hook prints nothing outside a Flutter project (it used to add a line to every session); CI pins the Claude Code CLI version for `plugin validate` and runs with `contents: read`; `.gitattributes` keeps LF line endings for scripts, Markdown, JSON, Dart and YAML; `SECURITY.md` and a false-positive issue form added.
 
 ### v1.8.0 (2026-11-05)
 - **Two detectors**: `W21` (`SingleTickerProviderStateMixin` with two or more `vsync: this`; the SDK asserts "multiple tickers were created" in debug and overwrites the first `Ticker` in release, since `_ticker` is never cleared) and `W05` (`.listen()` / `.addListener()` in `didChangeDependencies()` without tearing down the previous registration in the same method; HIGH, the catalog's W5). Both in both scanners with positive, negative and suppression fixtures; the run-once guard `if (!_initialized) { _initialized = true; ... }` from the private app is a negative fixture.

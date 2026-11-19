@@ -11,11 +11,11 @@ First read the code the change touches: parent widgets, callers, State lifecycle
 Systematically evaluate against the **Flutter Ultimate** standards in strict priority order:
 
 1. **CRITICAL RUNTIME SAFETY**:
-   - **Async BuildContext Gaps (K01-K14)**: Any `Navigator`, `ScaffoldMessenger`, `Theme`, `MediaQuery`, or `context.read/watch/go/push` across an `await` without an immediate `if (!context.mounted) return;` or `if (!mounted) return;` guard.
+   - **Async BuildContext Gaps (K01-K14)**: Any `Navigator`, `ScaffoldMessenger`, `Theme`, `MediaQuery`, or `context.read/watch/go/push` across an `await` without an `if (!context.mounted) return;` or `if (!mounted) return;` guard between the `await` and the use of the context.
    - **Disposal Pairing Leaks (W01-W21)**: Controllers closed with `.dispose()` (`TextEditingController`, `AnimationController`, `ScrollController`, `TabController`, `PageController`, `FocusNode`, `VideoPlayerController`, `CameraController`, `AppLifecycleListener`), stream sinks closed with `.close()` (`StreamController`), subscriptions and timers cancelled with `.cancel()` (`StreamSubscription`, `Timer`) in `dispose()`.
    - **Isolate Compute Starvation**: Heavy `jsonDecode` of large payloads or CPU-bound calculations executing on the main UI isolate instead of `Isolate.run()`, starving the 8.33ms/16.6ms frame budget.
 
-2. **60/120 FPS PIPELINE (2ms - 5ms Dart Execution Window)**:
+2. **60/120 FPS PIPELINE**:
    - **Missing `const` Constructors (P01)**: Missing `const` on unchanging widget trees, causing unnecessary element reconciliation.
    - **Root `setState` Invalidation (P02)**: Whole-screen `setState()` calls at the Scaffold root instead of scoped leaf rebuilding or `ValueNotifier`.
    - **Helper `_buildX()` Methods (P03)**: Inline helper methods instead of dedicated `StatelessWidget` classes with `const` constructors.
@@ -56,4 +56,4 @@ Systematically evaluate against the **Flutter Ultimate** standards in strict pri
 
 Change no code unless the user asks you to apply the fixes. When you do apply them, put `// flutter-ultimate: <TRAP_ID> <what changed and why>` directly above every edited line or block, so each skill-driven change is visible in the diff and can be reverted on its own.
 
-When the change touches `LayoutBuilder` vs `MediaQuery`, `AnimatedSwitcher`, selectors, keep-alive / `PageStorageKey` / restoration, `TickerMode`, `Future.wait` or isolates, check the decision tables in `references/advanced-framework-patterns.md` before judging it.
+When the change touches `LayoutBuilder` vs `MediaQuery`, `AnimatedSwitcher`, selectors, keep-alive / `PageStorageKey` / restoration, `TickerMode`, `Future.wait` or isolates, check the decision tables in `references/advanced-framework-patterns.md` before judging it. Paths: in a plugin install the manuals live in `${CLAUDE_PLUGIN_ROOT}/references/` and the scripts in `${CLAUDE_PLUGIN_ROOT}/scripts/`; in a standalone install they sit in `references/` and `scripts/` next to `SKILL.md`.

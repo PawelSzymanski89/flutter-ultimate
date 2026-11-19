@@ -5,12 +5,14 @@
 # ==============================================================================
 set -euo pipefail
 
-SCRIPT_VERSION="1.8.0"
+SCRIPT_VERSION="1.9.0"
 
 # usage [code]: --help prints to stdout and exits 0; CLI errors print to stderr and exit 2.
 usage() {
   local code="${1:-2}"
-  local text="Usage: $0 [--target <dir>] [--json | --sarif] [--fail-on CRITICAL|HIGH|MEDIUM|LOW] [--strict]"
+  local text="Usage: $0 [--target <dir>] [--json | --sarif] [--fail-on CRITICAL|HIGH|MEDIUM|LOW] [--strict] [--disable ID[,ID...]] [--uri-prefix <dir>]
+  --disable     leave these rule IDs (e.g. P27,GDPR-01) out of every output format and the exit code
+  --uri-prefix  prepend <dir> to every SARIF artifactLocation.uri (use when --target is a repository subdirectory)"
   if (( code == 0 )); then
     echo "$text"
   else
@@ -24,6 +26,9 @@ JSON_MODE=false
 SARIF_MODE=false
 STRICT_MODE=false
 FAIL_ON="CRITICAL"
+DISABLED=""
+URI_PREFIX=""
+KNOWN_RULES=" K01 W01 W03 W05 W06 W14 W21 P03 P07 P12 P19 P21 P26 P27 P32 LINT-01 LINT-02 GDPR-01 GDPR-02 GDPR-03 GDPR-04 "
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -55,6 +60,22 @@ while [[ $# -gt 0 ]]; do
       FAIL_ON="$2"
       shift 2
       ;;
+    --disable)
+      if [[ $# -lt 2 || -z "$2" || "$2" == -* ]]; then
+        echo "Error: --disable requires a comma-separated list of rule IDs" >&2
+        usage
+      fi
+      DISABLED+=",$2"
+      shift 2
+      ;;
+    --uri-prefix)
+      if [[ $# -lt 2 || -z "$2" || "$2" == -* ]]; then
+        echo "Error: --uri-prefix requires a directory argument" >&2
+        usage
+      fi
+      URI_PREFIX=$(printf '%s' "$2" | sed -E 's#\\#/#g; s#/+#/#g; s#^\./##; s#/$##')
+      shift 2
+      ;;
     -h|--help)
       usage 0
       ;;
@@ -79,6 +100,15 @@ if [[ "$JSON_MODE" = true && "$SARIF_MODE" = true ]]; then
   usage
 fi
 
+IFS=',' read -r -a disabled_arr <<< "${DISABLED#,}"
+for d in "${disabled_arr[@]+"${disabled_arr[@]}"}"; do
+  if [[ -z "$d" || "$KNOWN_RULES" != *" $d "* ]]; then
+    echo "Error: --disable got unknown rule ID '$d'" >&2
+    usage
+  fi
+done
+DISABLED="${DISABLED},"
+
 if [[ ! -d "$TARGET_PATH" ]]; then
   echo "Error: Target directory '$TARGET_PATH' does not exist" >&2
   exit 2
@@ -93,6 +123,7 @@ add_finding() {
   local severity="$3"
   local trap_id="$4"
   local message="$5"
+  [[ "$DISABLED" == *",$trap_id,"* ]] && return 0
   local rel_file="${file#"$TARGET_DIR"/}"
   local rec="$severity|$trap_id|$rel_file|$line|$message"
   local existing
@@ -158,6 +189,7 @@ release_msg() { # var kind action where
 }
 
 # 1. Scan Dart Files
+re_navigator='Navigator\.[A-Za-z_][A-Za-z0-9_]*(<[^>]*>)?[[:space:]]*\('
 while IFS= read -r file; do
   [[ -z "$file" ]] && continue
   rel_file="${file#"$TARGET_DIR"/}"
@@ -219,7 +251,7 @@ while IFS= read -r file; do
 
     # K01: Unprotected BuildContext across async gap
     # An arrow closure "() async => await x" has nothing after the await; skip it.
-    if [[ "$line" =~ (^|[[:space:]])await[[:space:]]+ ]] && ! [[ "$line" =~ =\>.*(^|[[:space:]])await[[:space:]] ]]; then
+    if [[ "$line" =~ (^|[^A-Za-z0-9_.])await[[:space:]]+ ]] && ! [[ "$line" =~ =\>.*(^|[^A-Za-z0-9_.])await[[:space:]] ]]; then
       # Enclosing function body = nearest preceding block opener that is not control flow
       # and sits shallower than the await. The scan stops where that body closes, so a
       # guard placed before the await (or in a sibling block) never counts.
@@ -254,14 +286,37 @@ while IFS= read -r file; do
         done
       fi
 
+      # Code after the awaited expression on the await line itself: "if (await x()) { Navigator.pop(context); }"
+      [[ "$line" =~ (^|[^A-Za-z0-9_.])await[[:space:]]+(.*)$ ]]
+      after_await="${BASH_REMATCH[2]}"
+      await_tail=""
+      pd=0
+      for ((c=0; c<${#after_await}; c++)); do
+        ch="${after_await:c:1}"
+        if [[ "$ch" == "(" ]]; then
+          pd=$((pd + 1))
+        elif [[ "$ch" == ")" ]]; then
+          pd=$((pd - 1))
+        fi
+        if (( pd < 0 )) || { [[ "$ch" == ";" ]] && (( pd == 0 )); }; then
+          await_tail="${after_await:c+1}"
+          break
+        fi
+      done
+      if [[ "$await_tail" =~ [^[:space:]] ]]; then
+        scan_from=$i
+      fi
+
       in_mounted_if=false
       mounted_if_depth=0
       pending_neg_mounted_guard=false
       pending_neg_depth=0
       guarded=false
+      min_before=$await_depth
 
       for ((j=scan_from; j<total_lines; j++)); do
         f_line="${lines[$j]}"
+        (( j == i )) && f_line="$await_tail"
         f_line_num=$((j + 1))
         f_before=${depth_before[$j]}
         f_after=${depth_after[$j]}
@@ -274,8 +329,14 @@ while IFS= read -r file; do
         fi
         # Leaving the block that holds the await into its "else" / "else if" sibling: that branch never
         # runs after this await. Handles both "} else {" on one line and "else {" on its own line.
-        if [[ "$f_line" =~ (^|[^A-Za-z0-9_])else([^A-Za-z0-9_]|$) ]] && [[ "$f_line" == *"{"* ]] && \
-           { (( f_before < await_depth )) || [[ "$f_line" =~ ^[[:space:]]*\} ]]; }; then
+        # The closed block must contain the await and must not have been left since the await.
+        if [[ "$f_line" =~ (^|[^A-Za-z0-9_])else([^A-Za-z0-9_]|$) ]] && [[ "$f_line" == *"{"* ]]; then
+          closed_depth=$((f_before + 1))
+          [[ "$f_line" =~ ^[[:space:]]*\} ]] && closed_depth=$f_before
+        else
+          closed_depth=-1
+        fi
+        if (( closed_depth > 0 && closed_depth <= await_depth && min_before >= closed_depth )); then
           else_target=$((f_after - 1))
           for ((e=j+1; e<total_lines; e++)); do
             if (( depth_after[e] <= else_target )); then
@@ -284,6 +345,9 @@ while IFS= read -r file; do
             fi
           done
           continue
+        fi
+        if (( f_before < min_before )) && ! [[ "$f_line" =~ ^[[:space:]]*$ ]]; then
+          min_before=$f_before
         fi
 
         if [[ "$in_mounted_if" = true ]] && (( f_before < mounted_if_depth )); then
@@ -321,7 +385,7 @@ while IFS= read -r file; do
         danger_op=""
         if [[ "$f_line" =~ (^|[^A-Za-z0-9_.])setState[[:space:]]*\( ]]; then
           danger_op="setState()"
-        elif [[ "$f_line" =~ Navigator\.(push|pop|of|maybePop|pushNamed|pushReplacement|popUntil)[[:space:]]*\( ]]; then
+        elif [[ "$f_line" =~ $re_navigator ]]; then
           danger_op="Navigator"
         elif [[ "$f_line" =~ (showDialog|showModalBottomSheet|showBottomSheet|showMenu|showDatePicker|showTimePicker)(\<[^\>]*\>)?[[:space:]]*\( ]]; then
           danger_op="Dialog"
@@ -420,8 +484,8 @@ while IFS= read -r file; do
 
   done
 
-  # W01, W03, W06, W14: Disposal pairing checks scoped to State classes & their dispose() methods
-  if [[ "$file_content" =~ class[[:space:]]+[A-Za-z0-9_]+[[:space:]]+extends[[:space:]]+State\< ]]; then
+  # W01, W03, W06, W14: Disposal pairing checks scoped to State / ConsumerState classes & their dispose() methods
+  if [[ "$file_content" =~ class[[:space:]]+[A-Za-z0-9_]+[[:space:]]+extends[[:space:]]+(State|ConsumerState)\< ]]; then
     controllers=(
       "TextEditingController"
       "AnimationController"
@@ -437,7 +501,7 @@ while IFS= read -r file; do
 
     for ((s=0; s<total_lines; s++)); do
       s_line="${lines[$s]}"
-      if [[ "$s_line" =~ class[[:space:]]+([A-Za-z0-9_]+)[[:space:]]+extends[[:space:]]+State\< ]]; then
+      if [[ "$s_line" =~ class[[:space:]]+([A-Za-z0-9_]+)[[:space:]]+extends[[:space:]]+(State|ConsumerState)\< ]]; then
         state_class_start=$s
         state_class_end=$((total_lines - 1))
         class_base=${depth_before[$s]}
@@ -474,7 +538,7 @@ while IFS= read -r file; do
             done
           fi
           rest="$m_line"
-          while [[ "$rest" =~ ([A-Za-z_][A-Za-z0-9_]*)(\?\.|\.)(dispose|cancel|close)[[:space:]]*\((.*)$ ]]; do
+          while [[ "$rest" =~ ([A-Za-z_][A-Za-z0-9_]*)(\?\.|!\.|\.)(dispose|cancel|close)[[:space:]]*\((.*)$ ]]; do
             release_index+="${BASH_REMATCH[1]}:${BASH_REMATCH[3]}:$cur_method|"
             rest="${BASH_REMATCH[4]}"
           done
@@ -688,14 +752,16 @@ ANDROID_MANIFEST="$TARGET_DIR/android/app/src/main/AndroidManifest.xml"
 if [[ -f "$ANDROID_MANIFEST" ]]; then
   manifest_flat=$(tr '\r\n' ' ' < "$ANDROID_MANIFEST")
   if [[ "$has_firebase_analytics" = true ]]; then
-    p1='android:name="firebase_analytics_collection_enabled"[[:space:]]*android:value="false"'
-    if ! [[ "$manifest_flat" =~ $p1 ]]; then
+    p1='<meta-data[^>]*android:name="firebase_analytics_collection_enabled"[^>]*android:value="false"'
+    p1r='<meta-data[^>]*android:value="false"[^>]*android:name="firebase_analytics_collection_enabled"'
+    if ! [[ "$manifest_flat" =~ $p1 ]] && ! [[ "$manifest_flat" =~ $p1r ]]; then
       add_finding "$ANDROID_MANIFEST" "1" "CRITICAL" "GDPR-01" "Missing native AndroidManifest default: firebase_analytics_collection_enabled must be false."
     fi
   fi
   if [[ "$has_firebase_crashlytics" = true ]]; then
-    p2='android:name="firebase_crashlytics_collection_enabled"[[:space:]]*android:value="false"'
-    if ! [[ "$manifest_flat" =~ $p2 ]]; then
+    p2='<meta-data[^>]*android:name="firebase_crashlytics_collection_enabled"[^>]*android:value="false"'
+    p2r='<meta-data[^>]*android:value="false"[^>]*android:name="firebase_crashlytics_collection_enabled"'
+    if ! [[ "$manifest_flat" =~ $p2 ]] && ! [[ "$manifest_flat" =~ $p2r ]]; then
       add_finding "$ANDROID_MANIFEST" "1" "CRITICAL" "GDPR-02" "Missing native AndroidManifest default: firebase_crashlytics_collection_enabled must be false."
     fi
   fi
@@ -705,13 +771,13 @@ IOS_PLIST="$TARGET_DIR/ios/Runner/Info.plist"
 if [[ -f "$IOS_PLIST" ]]; then
   plist_flat=$(tr '\r\n' ' ' < "$IOS_PLIST")
   if [[ "$has_firebase_analytics" = true ]]; then
-    p3='<key>FIREBASE_ANALYTICS_COLLECTION_ENABLED</key>[[:space:]]*<false/>'
+    p3='<key>FIREBASE_ANALYTICS_COLLECTION_ENABLED</key>[[:space:]]*<false[[:space:]]*/>'
     if ! [[ "$plist_flat" =~ $p3 ]]; then
       add_finding "$IOS_PLIST" "1" "CRITICAL" "GDPR-03" "Missing native Info.plist default: FIREBASE_ANALYTICS_COLLECTION_ENABLED must be <false/>."
     fi
   fi
   if [[ "$has_firebase_crashlytics" = true ]]; then
-    p4='<key>FirebaseCrashlyticsCollectionEnabled</key>[[:space:]]*<false/>'
+    p4='<key>FirebaseCrashlyticsCollectionEnabled</key>[[:space:]]*<false[[:space:]]*/>'
     if ! [[ "$plist_flat" =~ $p4 ]]; then
       add_finding "$IOS_PLIST" "1" "CRITICAL" "GDPR-04" "Missing native Info.plist default: FirebaseCrashlyticsCollectionEnabled must be <false/>."
     fi
@@ -771,7 +837,7 @@ if [[ "$SARIF_MODE" = true ]]; then
     [[ "$first" = false ]] && printf ','
     first=false
     printf '{"ruleId":"%s","level":"%s","message":{"text":"%s"},"locations":[{"physicalLocation":{"artifactLocation":{"uri":"%s"},"region":{"startLine":%d}}}]}' \
-      "$(json_escape "$trap_id")" "$(sarif_level "$sev")" "$(json_escape "$msg")" "$(json_escape "${rel_file//\\//}")" "$line"
+      "$(json_escape "$trap_id")" "$(sarif_level "$sev")" "$(json_escape "$msg")" "$(json_escape "${URI_PREFIX:+$URI_PREFIX/}${rel_file//\\//}")" "$line"
   done
   printf ']}]}\n'
 elif [[ "$JSON_MODE" = true ]]; then
@@ -801,7 +867,7 @@ else
   echo "=================================================="
 
   if (( ${#FINDINGS[@]} == 0 )); then
-    printf '\n[PASS] No performance traps, memory leaks, or context violations found!\n'
+    printf '\n[PASS] No findings from the heuristic rules (see README Limitations).\n'
     exit 0
   fi
 

@@ -9,13 +9,14 @@ Perform a Principal-level architectural and static code audit of the whole Flutt
 The scanner ships with this plugin, not with the audited repository. Run it from the plugin directory against the repository root:
 - On Linux / macOS:
   ```bash
-  bash ${CLAUDE_PLUGIN_ROOT}/scripts/audit-flutter.sh --target . --json
+  bash "${CLAUDE_PLUGIN_ROOT}/scripts/audit-flutter.sh" --target . --json
   ```
 - On Windows:
   ```powershell
-  powershell -ExecutionPolicy Bypass -File ${CLAUDE_PLUGIN_ROOT}/scripts/audit-flutter.ps1 -Target . -Json
+  powershell -ExecutionPolicy Bypass -File "${CLAUDE_PLUGIN_ROOT}/scripts/audit-flutter.ps1" -Target . -Json
   ```
-When the skill is installed standalone (no plugin root), the scripts sit next to `SKILL.md` under `scripts/`.
+When the skill is installed standalone (no plugin root), the scripts sit next to `SKILL.md` under `scripts/`. Paths: in a plugin install the manuals live in `${CLAUDE_PLUGIN_ROOT}/references/` and the scripts in `${CLAUDE_PLUGIN_ROOT}/scripts/`; in a standalone install they sit in `references/` and `scripts/` next to `SKILL.md`.
+Other options: `--fail-on CRITICAL|HIGH|MEDIUM|LOW` (`-FailOn`), `--strict`, `--sarif` (`-Sarif`), `--disable <ID[,ID...]>` (`-Disable`) to leave rules out of the output and the exit code, `--uri-prefix <dir>` (`-UriPrefix`) to prefix SARIF paths when the target is a subdirectory.
 
 If the script does not run (permission denied, file not found, tool unavailable): report that, show the exact command, and stop the static step there. Do **not** rebuild the detectors with `grep` or by reading files; a hand-made imitation produces different counts and the report would present them as the scanner's. The report names the scanner version (`tool.driver.version` in `--sarif`, or the plugin version) that produced the numbers.
 

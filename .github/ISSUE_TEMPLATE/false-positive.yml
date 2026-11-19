@@ -1,0 +1,44 @@
+name: False positive
+description: The scanner reported a finding on code that is correct.
+title: "False positive: "
+labels: ["false-positive"]
+body:
+  - type: input
+    id: rule
+    attributes:
+      label: Rule ID
+      description: The trapId from the finding, e.g. K01, W01, P19, GDPR-01.
+      placeholder: K01
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Scanner version
+      description: SCRIPT_VERSION in scripts/audit-flutter.sh, $ScriptVersion in scripts/audit-flutter.ps1, or tool.driver.version in --sarif output.
+      placeholder: 1.9.0
+    validations:
+      required: true
+  - type: textarea
+    id: snippet
+    attributes:
+      label: Minimal Dart snippet
+      description: The smallest code that still produces the finding. Remove anything private.
+      render: dart
+    validations:
+      required: true
+  - type: textarea
+    id: reported
+    attributes:
+      label: What the scanner reported
+      description: The finding as printed (severity, trapId, file:line, message).
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+      description: Why this code is correct, e.g. where the mounted guard or the release is.
+    validations:
+      required: true

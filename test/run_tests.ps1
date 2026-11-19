@@ -60,6 +60,12 @@ if (-not (Test-Path $SkillPath)) {
     }
 }
 
+# Every references/<name>.md cited by the skill, the session mode and the commands exists at the repository root
+$RefSources = @($SkillPath, (Join-Path $ProjectRoot "hooks\mode.md")) + @(Get-ChildItem (Join-Path $ProjectRoot "commands") -Filter "*.md" | ForEach-Object { $_.FullName })
+$CitedRefs = @($RefSources | ForEach-Object { [regex]::Matches((Get-Content $_ -Raw -Encoding UTF8), "references/[A-Za-z0-9_.-]+\.md") | ForEach-Object { $_.Value } } | Sort-Object -Unique)
+$MissingRefs = @($CitedRefs | Where-Object { -not (Test-Path (Join-Path $ProjectRoot $_)) })
+Report-Assert "Every references/*.md cited in SKILL.md, hooks/mode.md and commands/*.md exists" ($CitedRefs.Count -gt 0 -and $MissingRefs.Count -eq 0) "Missing: $($MissingRefs -join ', ')"
+
 # Validate Plugin Packaging files
 $PluginManifest = Join-Path $ProjectRoot ".claude-plugin\plugin.json"
 $MarketplaceManifest = Join-Path $ProjectRoot ".claude-plugin\marketplace.json"
@@ -69,6 +75,13 @@ $CmdReview = Join-Path $ProjectRoot "commands\review.md"
 
 Report-Assert "plugin.json exists" (Test-Path $PluginManifest)
 Report-Assert "marketplace.json exists" (Test-Path $MarketplaceManifest)
+
+$PluginJsonVersion = (Get-Content $PluginManifest -Raw | ConvertFrom-Json).version
+$Market = Get-Content $MarketplaceManifest -Raw | ConvertFrom-Json
+$ShVersion = [regex]::Match((Get-Content (Join-Path $ProjectRoot "scripts\audit-flutter.sh") -Raw), '(?m)^SCRIPT_VERSION="([^"]+)"').Groups[1].Value
+$PsVersion = [regex]::Match((Get-Content (Join-Path $ProjectRoot "scripts\audit-flutter.ps1") -Raw), '(?m)^\$ScriptVersion = "([^"]+)"').Groups[1].Value
+$AllVersions = @($PluginJsonVersion, $Market.metadata.version) + @($Market.plugins | ForEach-Object { $_.version }) + @($ShVersion, $PsVersion)
+Report-Assert "Version in plugin.json equals marketplace.json and both scanners" (@($AllVersions | Where-Object { $_ -ne $PluginJsonVersion }).Count -eq 0) "plugin.json, marketplace.json, audit-flutter.sh, audit-flutter.ps1: $($AllVersions -join ' ')"
 Report-Assert "skills/flutter-ultimate/SKILL.md exists" (Test-Path $PluginSkill)
 
 if (Test-Path $PluginSkill) {
@@ -94,8 +107,13 @@ $HookActivate = Join-Path $ProjectRoot "hooks\activate.js"
 $PositiveDir = Join-Path $ProjectRoot "test\fixtures\positive"
 Report-Assert "hooks/activate.js exists" (Test-Path $HookActivate)
 if (Test-Path $HookActivate) {
-    $ActNonFlutter = (& node $HookActivate 2>&1) -join "`n"
-    Report-Assert "activate.js in non-Flutter directory reports namespaced commands" ($ActNonFlutter -match "/flutter-ultimate:review")
+    Push-Location $ProjectRoot
+    try {
+        $ActNonFlutter = (& node $HookActivate 2>&1) -join "`n"
+        Report-Assert "activate.js in non-Flutter directory prints nothing" ($ActNonFlutter -eq "") "Output: $ActNonFlutter"
+    } finally {
+        Pop-Location
+    }
 
     Push-Location $PositiveDir
     try {
@@ -114,6 +132,10 @@ $NonExistentDir = Join-Path $ProjectRoot "non_existent_directory"
 $InvOutput = & $AuditPs1 -Target $NonExistentDir -Json 2>&1
 $InvExit = $LASTEXITCODE
 Report-Assert "Non-existent target directory exits with code 2" ($InvExit -eq 2) "Actual exit code: $InvExit"
+
+$null = & $AuditPs1 -Target (Join-Path $ProjectRoot "test\fixtures\single") -Json -FailOn BOGUS 2>&1
+$BadFailOnExit = $LASTEXITCODE
+Report-Assert "-FailOn with an invalid value exits with code 2" ($BadFailOnExit -eq 2) "Actual exit code: $BadFailOnExit"
 
 # 3. Test audit-flutter.ps1 on Positive Fixture
 Write-Host "`n[3/6] Testing audit-flutter.ps1 Positive Fixture..." -ForegroundColor Cyan
@@ -137,6 +159,27 @@ try {
         $found = $DetectedTraps -contains $trap
         Report-Assert "Positive fixture detects $trap" $found
     }
+
+    # Full records (severity, trapId, file, line, message) must equal test/fixtures/positive/expected.json
+    $RecordKeys = {
+        param($Records)
+        @($Records | ForEach-Object { "$($_.severity)|$($_.trapId)|$($_.file -replace '\\', '/')|$([int]$_.line)|$($_.message)" } | Sort-Object)
+    }
+    $ExpectedRecords = Get-Content (Join-Path $PositiveDir "expected.json") -Raw -Encoding UTF8 | ConvertFrom-Json
+    $ExpectedKeys = & $RecordKeys $ExpectedRecords
+    $ExpectedCount = $ExpectedKeys.Count
+    $ActualKeys = & $RecordKeys $PosJson
+    $KeyDiff = Compare-Object $ExpectedKeys $ActualKeys -CaseSensitive
+    Report-Assert "Positive fixture: $ExpectedCount findings equal to expected.json (severity, trapId, file, line, message)" ($ExpectedCount -gt 0 -and $ActualKeys.Count -eq $ExpectedCount -and $null -eq $KeyDiff) "Expected $ExpectedCount, got $($ActualKeys.Count); diff: $($KeyDiff | Out-String)"
+
+    # -Disable: listed rules leave every output and the exit code; unknown IDs are a CLI error
+    $DisOutput = & $AuditPs1 -Target $PositiveDir -Json -Disable GDPR-01,GDPR-02,GDPR-03,GDPR-04 2>&1
+    $DisJson = @($DisOutput | ConvertFrom-Json)
+    $DisGdpr = @($DisJson | Where-Object { $_.trapId -like "GDPR-*" }).Count
+    Report-Assert "-Disable GDPR-01,GDPR-02,GDPR-03,GDPR-04 removes every GDPR-* finding and nothing else" ($DisGdpr -eq 0 -and $DisJson.Count -eq ($ExpectedCount - 4)) "GDPR: $DisGdpr, total: $($DisJson.Count)"
+    $null = & $AuditPs1 -Target $PositiveDir -Json -Disable P03,NOPE 2>&1
+    $DisUnknownExit = $LASTEXITCODE
+    Report-Assert "-Disable with an unknown rule ID exits with code 2" ($DisUnknownExit -eq 2) "Actual exit code: $DisUnknownExit"
 } catch {
     Report-Assert "Positive fixture returns valid JSON" $false $_.Exception.Message
 }
@@ -151,6 +194,13 @@ Report-Assert "Single finding (MEDIUM) without -Strict returns exit code 0" ($Si
 $SingleStrictOutput = & $AuditPs1 -Target $SingleDir -Json -Strict 2>&1
 $SingleStrictExit = $LASTEXITCODE
 Report-Assert "Single finding with -Strict returns exit code 1" ($SingleStrictExit -eq 1) "Actual exit code: $SingleStrictExit"
+
+$null = & $AuditPs1 -Target $SingleDir -Json -FailOn HIGH 2>&1
+$FailOnHighExit = $LASTEXITCODE
+Report-Assert "Single finding (MEDIUM) with -FailOn HIGH returns exit code 0" ($FailOnHighExit -eq 0) "Actual exit code: $FailOnHighExit"
+$null = & $AuditPs1 -Target $SingleDir -Json -FailOn LOW 2>&1
+$FailOnLowExit = $LASTEXITCODE
+Report-Assert "Single finding (MEDIUM) with -FailOn LOW returns exit code 1" ($FailOnLowExit -eq 1) "Actual exit code: $FailOnLowExit"
 
 $SingleStr = ($SingleOutput -join "`n").Trim()
 $IsArrayFormat = ($SingleStr.StartsWith("[") -and $SingleStr.EndsWith("]"))
@@ -183,6 +233,13 @@ Report-Assert "Negative fixture -Sarif is a valid document with empty results" (
 $null = & $AuditPs1 -Target $SingleDir -Json -Sarif 2>&1
 $BothModesExit = $LASTEXITCODE
 Report-Assert "-Json -Sarif together exit with code 2" ($BothModesExit -eq 2) "Actual exit code: $BothModesExit"
+
+$SarifPrefixed = (& $AuditPs1 -Target $PositiveDir -Sarif -UriPrefix './app//' 2>&1) -join "`n"
+$PlainUris = @(($SarifPos | ConvertFrom-Json).runs[0].results | ForEach-Object { $_.locations[0].physicalLocation.artifactLocation.uri })
+$PrefixedUris = @(($SarifPrefixed | ConvertFrom-Json).runs[0].results | ForEach-Object { $_.locations[0].physicalLocation.artifactLocation.uri })
+$PrefixOk = $PlainUris.Count -gt 0 -and $PlainUris.Count -eq $PrefixedUris.Count
+for ($u = 0; $PrefixOk -and $u -lt $PlainUris.Count; $u++) { if ($PrefixedUris[$u] -cne ("app/" + $PlainUris[$u])) { $PrefixOk = $false } }
+Report-Assert "-Sarif -UriPrefix ./app// prefixes every artifactLocation.uri with app/" $PrefixOk "First URIs: $($PrefixedUris[0..2] -join ' ')"
 
 # 5. Test Negative & Suppression Fixtures
 Write-Host "`n[5/6] Testing Negative & Suppression Fixtures..." -ForegroundColor Cyan
@@ -241,7 +298,7 @@ if ($BashExe) {
             }
         } | Sort-Object trapId, file, line
 
-        Report-Assert "Both scanners report identical findings count (31)" ($PsNorm.Count -eq $BashNorm.Count -and $PsNorm.Count -eq 31) "PS: $($PsNorm.Count), Bash: $($BashNorm.Count)"
+        Report-Assert "Both scanners report identical findings count ($ExpectedCount)" ($PsNorm.Count -eq $BashNorm.Count -and $PsNorm.Count -eq $ExpectedCount) "PS: $($PsNorm.Count), Bash: $($BashNorm.Count)"
 
         $Diff = Compare-Object $PsNorm $BashNorm -Property severity, trapId, file, line, message
         Report-Assert "Zero discrepancies in severity, trapId, file, line, message" ($null -eq $Diff)
@@ -273,6 +330,12 @@ if ($BashExe) {
         $SarifDiff = Compare-Object $PsSarifNorm $BashSarifNorm -Property ruleId, level, message, uri, line
         $RulesSame = (($PsSarifDoc.runs[0].tool.driver.rules | ForEach-Object { $_.id }) -join ",") -eq (($BashSarif.runs[0].tool.driver.rules | ForEach-Object { $_.id }) -join ",")
         Report-Assert "Positive fixture SARIF parity: identical results and rules" ($null -eq $SarifDiff -and $RulesSame -and $PsSarifNorm.Count -eq $BashSarifNorm.Count)
+
+        $BashPrefixed = ((& $BashExe $BashAuditShPath --target $BashPosPath --sarif --uri-prefix './app//' 2>&1) -join "`n" | ConvertFrom-Json)
+        $PrefixDiff = Compare-Object (& $SarifNormalize ($SarifPrefixed | ConvertFrom-Json)) (& $SarifNormalize $BashPrefixed) -Property ruleId, level, message, uri, line
+        $BashDis = (& $BashExe $BashAuditShPath --target $BashPosPath --json --disable GDPR-01,GDPR-02,GDPR-03,GDPR-04 2>&1) | ConvertFrom-Json
+        $DisDiff = Compare-Object (& $RecordKeys $DisJson) (& $RecordKeys $BashDis) -CaseSensitive
+        Report-Assert "--disable and --uri-prefix parity: identical JSON and SARIF" ($null -eq $PrefixDiff -and $null -eq $DisDiff)
     } catch {
         Report-Assert "Bash JSON output parsing" $false $_.Exception.Message
     }

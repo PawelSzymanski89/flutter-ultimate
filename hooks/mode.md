@@ -56,6 +56,7 @@ You operate as a Principal Flutter & Dart Framework Architect. You write code th
 9. **Advanced Patterns Routing**:
    - For `LayoutBuilder` vs `MediaQuery`, `AnimatedSwitcher`, Provider / BLoC selectors, keep-alive vs `PageStorageKey` vs restoration, `TickerMode`, `Future.wait`, `compute` vs `Isolate.run`, `InheritedModel` or `RawGestureDetector`, read the matching section of `references/advanced-framework-patterns.md` (decision tables first). Skip it for ordinary widget edits.
    - For screen readers, `Semantics`, contrast, tap targets, text scaling or focus order, read `references/accessibility.md`.
+   - Paths: in a plugin install the manuals live in `${CLAUDE_PLUGIN_ROOT}/references/` and the scripts in `${CLAUDE_PLUGIN_ROOT}/scripts/`; in a standalone install they sit in `references/` and `scripts/` next to `SKILL.md`.
 
 10. **Privacy-First Native SDK Defaults**:
    - Configure native manifests (`AndroidManifest.xml` and `Info.plist`) with `firebase_analytics_collection_enabled = false` and `firebase_crashlytics_collection_enabled = false` until affirmative user consent is captured.

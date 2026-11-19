@@ -15,6 +15,15 @@
 
 .PARAMETER Strict
     Exit with code 1 on any warning (Medium/Low) in addition to errors (Critical/High).
+
+.PARAMETER FailOn
+    Exit with code 1 when a finding is at or above this severity (CRITICAL, HIGH, MEDIUM, LOW; default CRITICAL).
+
+.PARAMETER Disable
+    Rule IDs (comma-separated, e.g. P27,GDPR-01) left out of every output format and the exit code.
+
+.PARAMETER UriPrefix
+    Directory prepended to every SARIF artifactLocation.uri (use when -Target is a repository subdirectory).
 #>
 [CmdletBinding()]
 param(
@@ -23,11 +32,26 @@ param(
     [switch]$Json,
     [switch]$Sarif,
     [switch]$Strict,
-    [ValidateSet("CRITICAL","HIGH","MEDIUM","LOW")][string]$FailOn = "CRITICAL"
+    [string]$FailOn = "CRITICAL",
+    [string[]]$Disable = @(),
+    [string]$UriPrefix = ""
 )
 
 $ErrorActionPreference = "Stop"
-$ScriptVersion = "1.8.0"
+$ScriptVersion = "1.9.0"
+$KnownRules = @("K01","W01","W03","W05","W06","W14","W21","P03","P07","P12","P19","P21","P26","P27","P32","LINT-01","LINT-02","GDPR-01","GDPR-02","GDPR-03","GDPR-04")
+if (@("CRITICAL","HIGH","MEDIUM","LOW") -notcontains $FailOn) {
+    [Console]::Error.WriteLine("Error: -FailOn requires one of CRITICAL, HIGH, MEDIUM, LOW")
+    exit 2
+}
+$DisabledRules = @($Disable | ForEach-Object { $_ -split "," })
+foreach ($d in $DisabledRules) {
+    if ($KnownRules -cnotcontains $d) {
+        [Console]::Error.WriteLine("Error: -Disable got unknown rule ID '$d'")
+        exit 2
+    }
+}
+$UriPrefix = (($UriPrefix -replace "\\", "/") -replace "/+", "/") -replace "^\./", "" -replace "/$", ""
 if ($Json -and $Sarif) {
     [Console]::Error.WriteLine("Error: -Json and -Sarif are mutually exclusive")
     exit 2
@@ -50,6 +74,7 @@ function Add-Finding {
         [string]$TrapId,   # e.g., P07, W01, K01, GDPR-01
         [string]$Message
     )
+    if ($DisabledRules -ccontains $TrapId) { return }
     $RelativeFile = $File.Replace($ResolvedPath, "").TrimStart("\", "/")
     foreach ($existing in $Findings) {
         if ($existing.File -eq $RelativeFile -and $existing.Line -eq $Line -and $existing.TrapId -eq $TrapId -and $existing.Message -eq $Message) { return }
@@ -124,7 +149,7 @@ foreach ($FileItem in $DartFiles) {
         }
 
         # K01: Unprotected BuildContext usage across async gap
-        if ($Line -match "(?:^|\s)await\s+" -and $Line -notmatch "=>.*(?:^|\s)await\s") {
+        if ($Line -match "(?:^|[^A-Za-z0-9_.])await\s+" -and $Line -notmatch "=>.*(?:^|[^A-Za-z0-9_.])await\s") {
             # Enclosing function body = nearest preceding block opener that is not control flow
             # and sits shallower than the await. The scan stops where that body closes.
             $AwaitDepth = $DepthBefore[$i]
@@ -150,14 +175,28 @@ foreach ($FileItem in $DartFiles) {
                 }
             }
 
+            # Code after the awaited expression on the await line itself: "if (await x()) { Navigator.pop(context); }"
+            $AfterAwait = [regex]::Match($Line, "(?:^|[^A-Za-z0-9_.])await\s+(.*)$").Groups[1].Value
+            $AwaitTail = ""
+            $Pd = 0
+            for ($c = 0; $c -lt $AfterAwait.Length; $c++) {
+                $Ch = $AfterAwait[$c]
+                if ($Ch -eq '(') { $Pd++ }
+                if ($Ch -eq ')') { $Pd-- }
+                if ($Pd -lt 0 -or ($Ch -eq ';' -and $Pd -eq 0)) { $AwaitTail = $AfterAwait.Substring($c + 1); break }
+            }
+            if ($AwaitTail -match "\S") { $ScanFrom = $i }
+
             $InMountedIf = $false
             $MountedIfDepth = 0
             $PendingNegMountedGuard = $false
             $PendingNegDepth = 0
             $Guarded = $false
+            $MinBefore = $AwaitDepth
 
             for ($j = $ScanFrom; $j -lt $TotalLines; $j++) {
                 $FLine = $Lines[$j]
+                if ($j -eq $i) { $FLine = $AwaitTail }
                 $FLineNum = $j + 1
                 $FBefore = $DepthBefore[$j]
                 $FAfter = $DepthAfter[$j]
@@ -166,14 +205,19 @@ foreach ($FileItem in $DartFiles) {
                 if ($FLine -match "^\s*//") { continue }
                 # Leaving the block that holds the await into its "else" / "else if" sibling: that branch never
                 # runs after this await. Handles both "} else {" on one line and "else {" on its own line.
-                if ($FLine -match "(?:^|[^A-Za-z0-9_])else(?:[^A-Za-z0-9_]|$)" -and $FLine.Contains("{") -and
-                    ($FBefore -lt $AwaitDepth -or $FLine -match "^\s*\}")) {
+                # The closed block must contain the await and must not have been left since the await.
+                $ClosedDepth = -1
+                if ($FLine -match "(?:^|[^A-Za-z0-9_])else(?:[^A-Za-z0-9_]|$)" -and $FLine.Contains("{")) {
+                    $ClosedDepth = if ($FLine -match "^\s*\}") { $FBefore } else { $FBefore + 1 }
+                }
+                if ($ClosedDepth -gt 0 -and $ClosedDepth -le $AwaitDepth -and $MinBefore -ge $ClosedDepth) {
                     $ElseTarget = $FAfter - 1
                     for ($e = $j + 1; $e -lt $TotalLines; $e++) {
                         if ($DepthAfter[$e] -le $ElseTarget) { $j = $e; break }
                     }
                     continue
                 }
+                if ($FLine -notmatch "^\s*$" -and $FBefore -lt $MinBefore) { $MinBefore = $FBefore }
 
                 if ($InMountedIf -and $FBefore -lt $MountedIfDepth) { $InMountedIf = $false }
                 if ($PendingNegMountedGuard -and $FBefore -lt $PendingNegDepth) { $PendingNegMountedGuard = $false }
@@ -203,7 +247,7 @@ foreach ($FileItem in $DartFiles) {
                 $DangerOp = ""
                 if ($FLine -match "(?:^|[^A-Za-z0-9_.])setState\s*\(") {
                     $DangerOp = "setState()"
-                } elseif ($FLine -match "Navigator\.(?:push|pop|of|maybePop|pushNamed|pushReplacement|popUntil)\s*\(") {
+                } elseif ($FLine -match "Navigator\.[A-Za-z_][A-Za-z0-9_]*(?:<[^>]*>)?\s*\(") {
                     $DangerOp = "Navigator"
                 } elseif ($FLine -match "(?:showDialog|showModalBottomSheet|showBottomSheet|showMenu|showDatePicker|showTimePicker)(?:<[^>]*>)?\s*\(") {
                     $DangerOp = "Dialog"
@@ -306,8 +350,8 @@ foreach ($FileItem in $DartFiles) {
         }
     }
 
-    # W01, W03, W06, W14: Disposal pairing checks scoped to State classes & their dispose() methods
-    if ($Content -match "class\s+\w+\s+extends\s+State<") {
+    # W01, W03, W06, W14: Disposal pairing checks scoped to State / ConsumerState classes & their dispose() methods
+    if ($Content -match "class\s+\w+\s+extends\s+(?:State|ConsumerState)<") {
         $Controllers = @(
             "TextEditingController",
             "AnimationController",
@@ -323,7 +367,7 @@ foreach ($FileItem in $DartFiles) {
 
         for ($s = 0; $s -lt $TotalLines; $s++) {
             $SLine = $Lines[$s]
-            if ($SLine -match "class\s+([A-Za-z0-9_]+)\s+extends\s+State<") {
+            if ($SLine -match "class\s+([A-Za-z0-9_]+)\s+extends\s+(?:State|ConsumerState)<") {
                 $StateClassStart = $s
                 $StateClassEnd = $TotalLines - 1
                 $ClassBase = $DepthBefore[$s]
@@ -346,7 +390,7 @@ foreach ($FileItem in $DartFiles) {
                     if ($CurMethod -eq "dispose") {
                         foreach ($cm in [regex]::Matches($MLine, "([A-Za-z_][A-Za-z0-9_]*)\s*\(")) { $DisposeCalls[$cm.Groups[1].Value] = $true }
                     }
-                    foreach ($rm in [regex]::Matches($MLine, "([A-Za-z_][A-Za-z0-9_]*)(?:\?\.|\.)(dispose|cancel|close)\s*\(")) {
+                    foreach ($rm in [regex]::Matches($MLine, "([A-Za-z_][A-Za-z0-9_]*)(?:\?\.|!\.|\.)(dispose|cancel|close)\s*\(")) {
                         $key = $rm.Groups[1].Value + ":" + $rm.Groups[2].Value
                         if (-not $ReleaseIndex.ContainsKey($key)) { $ReleaseIndex[$key] = @{} }
                         $ReleaseIndex[$key][$CurMethod] = $true
@@ -576,11 +620,11 @@ if ($PubspecContent) {
 $AndroidManifest = Join-Path $ResolvedPath "android\app\src\main\AndroidManifest.xml"
 if (Test-Path $AndroidManifest) {
     $ManifestContent = Get-Content $AndroidManifest -Raw -Encoding UTF8
-    if ($HasFirebaseAnalytics -and $ManifestContent -notmatch 'android:name="firebase_analytics_collection_enabled"\s*android:value="false"') {
+    if ($HasFirebaseAnalytics -and $ManifestContent -notmatch '<meta-data[^>]*android:name="firebase_analytics_collection_enabled"[^>]*android:value="false"' -and $ManifestContent -notmatch '<meta-data[^>]*android:value="false"[^>]*android:name="firebase_analytics_collection_enabled"') {
         Add-Finding -File $AndroidManifest -Line 1 -Severity "CRITICAL" -TrapId "GDPR-01" `
             -Message "Missing native AndroidManifest default: firebase_analytics_collection_enabled must be false."
     }
-    if ($HasFirebaseCrashlytics -and $ManifestContent -notmatch 'android:name="firebase_crashlytics_collection_enabled"\s*android:value="false"') {
+    if ($HasFirebaseCrashlytics -and $ManifestContent -notmatch '<meta-data[^>]*android:name="firebase_crashlytics_collection_enabled"[^>]*android:value="false"' -and $ManifestContent -notmatch '<meta-data[^>]*android:value="false"[^>]*android:name="firebase_crashlytics_collection_enabled"') {
         Add-Finding -File $AndroidManifest -Line 1 -Severity "CRITICAL" -TrapId "GDPR-02" `
             -Message "Missing native AndroidManifest default: firebase_crashlytics_collection_enabled must be false."
     }
@@ -589,11 +633,11 @@ if (Test-Path $AndroidManifest) {
 $IosPlist = Join-Path $ResolvedPath "ios\Runner\Info.plist"
 if (Test-Path $IosPlist) {
     $PlistContent = Get-Content $IosPlist -Raw -Encoding UTF8
-    if ($HasFirebaseAnalytics -and $PlistContent -notmatch '<key>FIREBASE_ANALYTICS_COLLECTION_ENABLED</key>\s*<false/>') {
+    if ($HasFirebaseAnalytics -and $PlistContent -notmatch '<key>FIREBASE_ANALYTICS_COLLECTION_ENABLED</key>\s*<false\s*/>') {
         Add-Finding -File $IosPlist -Line 1 -Severity "CRITICAL" -TrapId "GDPR-03" `
             -Message "Missing native Info.plist default: FIREBASE_ANALYTICS_COLLECTION_ENABLED must be <false/>."
     }
-    if ($HasFirebaseCrashlytics -and $PlistContent -notmatch '<key>FirebaseCrashlyticsCollectionEnabled</key>\s*<false/>') {
+    if ($HasFirebaseCrashlytics -and $PlistContent -notmatch '<key>FirebaseCrashlyticsCollectionEnabled</key>\s*<false\s*/>') {
         Add-Finding -File $IosPlist -Line 1 -Severity "CRITICAL" -TrapId "GDPR-04" `
             -Message "Missing native Info.plist default: FirebaseCrashlyticsCollectionEnabled must be <false/>."
     }
@@ -640,7 +684,7 @@ if ($Sarif) {
             ruleId = $f.TrapId
             level = $SarifLevel[$f.Severity]
             message = [ordered]@{ text = $f.Message }
-            locations = @([ordered]@{ physicalLocation = [ordered]@{ artifactLocation = [ordered]@{ uri = ($f.File -replace "\\", "/") }; region = [ordered]@{ startLine = [int]$f.Line } } })
+            locations = @([ordered]@{ physicalLocation = [ordered]@{ artifactLocation = [ordered]@{ uri = ($(if ($UriPrefix) { "$UriPrefix/" } else { "" }) + ($f.File -replace "\\", "/")) }; region = [ordered]@{ startLine = [int]$f.Line } } })
         }
     }
     $Doc = [ordered]@{
@@ -680,7 +724,7 @@ if ($Sarif) {
     Write-Host "=================================================="
 
     if ($Findings.Count -eq 0) {
-        Write-Host "`n[PASS] No performance traps, memory leaks, or context violations found!" -ForegroundColor Green
+        Write-Host "`n[PASS] No findings from the heuristic rules (see README Limitations)." -ForegroundColor Green
         exit 0
     }
 

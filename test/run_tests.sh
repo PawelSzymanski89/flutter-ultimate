@@ -10,6 +10,15 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 PASSED=0
 FAILED=0
 
+TMP_DIR=$(mktemp -d)
+trap 'rm -rf "$TMP_DIR"' EXIT
+
+# Windows caps a command line at 32767 chars, so scanner output reaches node as a file path
+as_file() {
+  printf '%s' "$2" > "$TMP_DIR/$1"
+  printf '%s' "$TMP_DIR/$1"
+}
+
 # ANSI Colors
 GREEN='\033[0;32m'
 RED='\033[0;31m'
@@ -254,10 +263,10 @@ EXPECTED_COUNT=$(node -e "$NORM_JS"' console.log(norm(fs.readFileSync(process.ar
 set +e
 # shellcheck disable=SC2016
 expected_check=$(node -e "$NORM_JS"'
-  const exp = norm(fs.readFileSync(process.argv[1], "utf8")), got = norm(process.argv[2]);
+  const exp = norm(fs.readFileSync(process.argv[1], "utf8")), got = norm(fs.readFileSync(process.argv[2], "utf8"));
   const missing = exp.filter(x => !got.includes(x)), extra = got.filter(x => !exp.includes(x));
   if (exp.length !== got.length || missing.length || extra.length) { console.error("expected " + exp.length + ", got " + got.length + "\nmissing: " + missing.join("\n") + "\nextra: " + extra.join("\n")); process.exit(1); }
-' "$EXPECTED_JSON" "$pos_output" 2>&1)
+' "$EXPECTED_JSON" "$(as_file pos.json "$pos_output")" 2>&1)
 expected_exit=$?
 set -e
 report_assert "Positive fixture: $EXPECTED_COUNT findings equal to expected.json (severity, trapId, file, line, message)" $(( expected_exit == 0 ? 1 : 0 )) "$expected_check"
@@ -317,10 +326,11 @@ sarif_neg=$("$AUDIT_SH" --target "$PROJECT_ROOT/test/fixtures/negative" --sarif 
 both_modes_exit=$?
 # shellcheck disable=SC2016
 sarif_check=$(node -e '
-  const d = JSON.parse(process.argv[1]);
+  const fs = require("fs");
+  const d = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
   const run = d.runs[0];
   const results = run.results;
-  const n = JSON.parse(process.argv[2]).length;
+  const n = JSON.parse(fs.readFileSync(process.argv[2], "utf8")).length;
   if (d.version !== "2.1.0") { console.error("version " + d.version); process.exit(1); }
   if (run.tool.driver.version !== process.argv[3]) { console.error("driver.version " + run.tool.driver.version + " != plugin.json " + process.argv[3]); process.exit(1); }
   if (results.length !== n) { console.error("results " + results.length + " != json findings " + n); process.exit(1); }
@@ -331,13 +341,13 @@ sarif_check=$(node -e '
     const loc = r.locations[0].physicalLocation;
     if (!loc.artifactLocation.uri || loc.artifactLocation.uri.includes("\\") || !Number.isInteger(loc.region.startLine)) { console.error("location " + JSON.stringify(loc)); process.exit(1); }
   }
-' "$sarif_pos" "$pos_output" "$PLUGIN_VERSION" 2>&1)
+' "$(as_file sarif_pos.json "$sarif_pos")" "$TMP_DIR/pos.json" "$PLUGIN_VERSION" 2>&1)
 sarif_check_exit=$?
 set -e
 report_assert "Positive fixture --sarif is SARIF 2.1.0 with one result per JSON finding, rules for every ruleId and driver.version == plugin.json" $(( sarif_check_exit == 0 ? 1 : 0 )) "$sarif_check"
 set +e
 # shellcheck disable=SC2016
-sarif_neg_check=$(node -e 'const d = JSON.parse(process.argv[1]); if (d.runs[0].results.length !== 0) { console.error("expected empty results"); process.exit(1); }' "$sarif_neg" 2>&1)
+sarif_neg_check=$(node -e 'const d = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")); if (d.runs[0].results.length !== 0) { console.error("expected empty results"); process.exit(1); }' "$(as_file sarif_neg.json "$sarif_neg")" 2>&1)
 sarif_neg_exit=$?
 set -e
 report_assert "Negative fixture --sarif is a valid document with empty results" $(( sarif_neg_exit == 0 ? 1 : 0 )) "$sarif_neg_check"
@@ -347,10 +357,10 @@ set +e
 sarif_prefixed=$("$AUDIT_SH" --target "$POS_DIR" --sarif --uri-prefix './app//' 2>&1)
 # shellcheck disable=SC2016
 prefix_check=$(node -e '
-  const uris = raw => JSON.parse(raw).runs[0].results.map(r => r.locations[0].physicalLocation.artifactLocation.uri);
+  const uris = p => JSON.parse(require("fs").readFileSync(p, "utf8")).runs[0].results.map(r => r.locations[0].physicalLocation.artifactLocation.uri);
   const plain = uris(process.argv[1]), pre = uris(process.argv[2]);
   if (plain.length === 0 || plain.length !== pre.length || pre.some((u, i) => u !== "app/" + plain[i])) { console.error(pre.slice(0, 3).join(" ")); process.exit(1); }
-' "$sarif_pos" "$sarif_prefixed" 2>&1)
+' "$TMP_DIR/sarif_pos.json" "$(as_file sarif_prefixed.json "$sarif_prefixed")" 2>&1)
 prefix_exit=$?
 set -e
 report_assert "--sarif --uri-prefix ./app// prefixes every artifactLocation.uri with app/" $(( prefix_exit == 0 ? 1 : 0 )) "$prefix_check"
@@ -416,8 +426,8 @@ if [[ -n "$PWSH_CMD" ]]; then
                a.message.localeCompare(b.message);
       });
     }
-    const bash = norm(process.argv[1]);
-    const ps = norm(process.argv[2]);
+    const bash = norm(require("fs").readFileSync(process.argv[1], "utf8"));
+    const ps = norm(require("fs").readFileSync(process.argv[2], "utf8"));
     if (bash.length !== ps.length) {
       console.error(`Count mismatch: Bash ${bash.length} vs PS ${ps.length}`);
       process.exit(1);
@@ -429,31 +439,33 @@ if [[ -n "$PWSH_CMD" ]]; then
         process.exit(1);
       }
     }
-  ' "$pos_output" "$ps_pos" 2>&1)
+  ' "$TMP_DIR/pos.json" "$(as_file ps_pos.json "$ps_pos")" 2>&1)
   diff_pos_exit=$?
 
   report_assert "Positive fixture parity: $EXPECTED_COUNT findings with zero discrepancies in (severity, trapId, file, line, message)" $(( diff_pos_exit == 0 ? 1 : 0 )) "$diff_pos"
 
   # shellcheck disable=SC2016
   diff_neg=$(node -e '
-    const b = (process.argv[1] || "").trim();
-    const p = (process.argv[2] || "").trim();
+    const fs = require("fs");
+    const b = fs.readFileSync(process.argv[1], "utf8").trim();
+    const p = fs.readFileSync(process.argv[2], "utf8").trim();
     if (b !== "[]" || p !== "[]") {
       console.error(`Negative mismatch: Bash "${b}" vs PS "${p}"`);
       process.exit(1);
     }
-  ' "$neg_output" "$ps_neg" 2>&1)
+  ' "$(as_file neg.json "$neg_output")" "$(as_file ps_neg.json "$ps_neg")" 2>&1)
   report_assert "Negative fixture parity: both return strict '[]'" $(( $? == 0 ? 1 : 0 )) "$diff_neg"
 
   # shellcheck disable=SC2016
   diff_sup=$(node -e '
-    const b = (process.argv[1] || "").trim();
-    const p = (process.argv[2] || "").trim();
+    const fs = require("fs");
+    const b = fs.readFileSync(process.argv[1], "utf8").trim();
+    const p = fs.readFileSync(process.argv[2], "utf8").trim();
     if (b !== "[]" || p !== "[]") {
       console.error(`Suppression mismatch: Bash "${b}" vs PS "${p}"`);
       process.exit(1);
     }
-  ' "$sup_output" "$ps_sup" 2>&1)
+  ' "$(as_file sup.json "$sup_output")" "$(as_file ps_sup.json "$ps_sup")" 2>&1)
   report_assert "Suppression fixture parity: both return strict '[]'" $(( $? == 0 ? 1 : 0 )) "$diff_sup"
 
   # shellcheck disable=SC2016
@@ -468,23 +480,23 @@ if [[ -n "$PWSH_CMD" ]]; then
         message: String(r.message || "").trim()
       }));
     }
-    const b = norm(process.argv[1]);
-    const p = norm(process.argv[2]);
+    const b = norm(require("fs").readFileSync(process.argv[1], "utf8"));
+    const p = norm(require("fs").readFileSync(process.argv[2], "utf8"));
     if (b.length !== 1 || p.length !== 1 || JSON.stringify(b[0]) !== JSON.stringify(p[0])) {
       console.error(`Single mismatch: Bash ${JSON.stringify(b)} vs PS ${JSON.stringify(p)}`);
       process.exit(1);
     }
-  ' "$single_output" "$ps_single" 2>&1)
+  ' "$(as_file single.json "$single_output")" "$(as_file ps_single.json "$ps_single")" 2>&1)
   report_assert "Single finding fixture parity: exactly 1 matching record" $(( $? == 0 ? 1 : 0 )) "$diff_single"
 
   set +e
   ps_sarif=$("$PWSH_CMD" -NoProfile -ExecutionPolicy Bypass -File "$AUDIT_PS1" -Target "$POS_DIR" -Sarif 2>&1)
   # shellcheck disable=SC2016
   diff_sarif=$(node -e '
-    const norm = raw => { const d = JSON.parse(raw); d.runs[0].results.forEach(r => { r.locations[0].physicalLocation.artifactLocation.uri = r.locations[0].physicalLocation.artifactLocation.uri.replace(/\\/g, "/"); }); return JSON.stringify(d); };
+    const norm = p => { const d = JSON.parse(require("fs").readFileSync(p, "utf8")); d.runs[0].results.forEach(r => { r.locations[0].physicalLocation.artifactLocation.uri = r.locations[0].physicalLocation.artifactLocation.uri.replace(/\\/g, "/"); }); return JSON.stringify(d); };
     const b = norm(process.argv[1]), p = norm(process.argv[2]);
     if (b !== p) { console.error("SARIF differs:\n" + b.slice(0, 400) + "\n---\n" + p.slice(0, 400)); process.exit(1); }
-  ' "$sarif_pos" "$ps_sarif" 2>&1)
+  ' "$TMP_DIR/sarif_pos.json" "$(as_file ps_sarif.json "$ps_sarif")" 2>&1)
   diff_sarif_exit=$?
   set -e
   report_assert "Positive fixture SARIF parity: identical documents" $(( diff_sarif_exit == 0 ? 1 : 0 )) "$diff_sarif"
@@ -494,11 +506,12 @@ if [[ -n "$PWSH_CMD" ]]; then
   ps_dis=$("$PWSH_CMD" -NoProfile -ExecutionPolicy Bypass -File "$AUDIT_PS1" -Target "$POS_DIR" -Json -Disable GDPR-01,GDPR-02,GDPR-03,GDPR-04 2>&1)
   # shellcheck disable=SC2016
   diff_flags=$(node -e '
-    const doc = raw => JSON.stringify(JSON.parse(raw));
-    const recs = raw => JSON.parse(raw).map(r => JSON.stringify([r.severity, r.trapId, String(r.file).replace(/\\/g, "/"), Number(r.line), r.message])).sort().join("\n");
+    const read = p => require("fs").readFileSync(p, "utf8");
+    const doc = p => JSON.stringify(JSON.parse(read(p)));
+    const recs = p => JSON.parse(read(p)).map(r => JSON.stringify([r.severity, r.trapId, String(r.file).replace(/\\/g, "/"), Number(r.line), r.message])).sort().join("\n");
     if (doc(process.argv[1]) !== doc(process.argv[2])) { console.error("--uri-prefix SARIF differs"); process.exit(1); }
     if (recs(process.argv[3]) !== recs(process.argv[4])) { console.error("--disable JSON differs"); process.exit(1); }
-  ' "$sarif_prefixed" "$ps_sarif_prefixed" "$dis_output" "$ps_dis" 2>&1)
+  ' "$TMP_DIR/sarif_prefixed.json" "$(as_file ps_sarif_prefixed.json "$ps_sarif_prefixed")" "$(as_file dis.json "$dis_output")" "$(as_file ps_dis.json "$ps_dis")" 2>&1)
   diff_flags_exit=$?
   set -e
   report_assert "--disable and --uri-prefix parity: identical JSON and SARIF" $(( diff_flags_exit == 0 ? 1 : 0 )) "$diff_flags"

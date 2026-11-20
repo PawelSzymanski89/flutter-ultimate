@@ -181,6 +181,26 @@ try {
     $null = & $AuditPs1 -Target $PositiveDir -Json -Disable P03,NOPE 2>&1
     $DisUnknownExit = $LASTEXITCODE
     Report-Assert "-Disable with an unknown rule ID exits with code 2" ($DisUnknownExit -eq 2) "Actual exit code: $DisUnknownExit"
+
+    # -RespectIgnore drops exactly the K01 records under "// ignore[_for_file]: use_build_context_synchronously";
+    # -Exclude drops exactly the records of the matched file. Both compared with expected.json record by record.
+    $RiJson = (& $AuditPs1 -Target $PositiveDir -Json -RespectIgnore 2>&1) | ConvertFrom-Json
+    $RiJson = @($RiJson)
+    $RiGone = @("K01|lib/lint_ignore_file.dart|15|", "K01|lib/sample.dart|339|", "K01|lib/sample.dart|345|", "K01|lib/sample.dart|350|", "K01|lib/sample.dart|356|")
+    $RiWant = @($ExpectedKeys | Where-Object { $k = $_; @($RiGone | Where-Object { $k.Contains($_) }).Count -eq 0 })
+    $RiDiff = Compare-Object $RiWant (& $RecordKeys $RiJson) -CaseSensitive
+    Report-Assert "-RespectIgnore removes the 5 K01 records under use_build_context_synchronously ignores (line above, list, line end, statement, file) and nothing else" ($RiWant.Count -eq ($ExpectedCount - 5) -and $null -eq $RiDiff) "Want $($RiWant.Count), got $($RiJson.Count); diff: $($RiDiff | Out-String)"
+
+    $ExJson = (& $AuditPs1 -Target $PositiveDir -Json -Exclude '*sam?le.dart' 2>&1) | ConvertFrom-Json
+    $ExJson = @($ExJson)
+    $ExWant = @($ExpectedKeys | Where-Object { -not $_.Contains("|lib/sample.dart|") })
+    $ExDiff = Compare-Object $ExWant (& $RecordKeys $ExJson) -CaseSensitive
+    Report-Assert "-Exclude '*sam?le.dart' removes every lib/sample.dart record and nothing else" ($ExWant.Count -lt $ExpectedCount -and $null -eq $ExDiff) "Want $($ExWant.Count), got $($ExJson.Count); diff: $($ExDiff | Out-String)"
+    $null = & $AuditPs1 -Target $PositiveDir -Json -Exclude '' 2>&1
+    $ExEmptyExit = $LASTEXITCODE
+    $null = & $AuditPs1 -Target $PositiveDir -Json -Exclude 'lib/x.dart,' 2>&1
+    $ExTrailingExit = $LASTEXITCODE
+    Report-Assert "-Exclude with an empty pattern exits with code 2" ($ExEmptyExit -eq 2 -and $ExTrailingExit -eq 2) "Actual exit codes: $ExEmptyExit / $ExTrailingExit"
 } catch {
     Report-Assert "Positive fixture returns valid JSON" $false $_.Exception.Message
 }
@@ -337,6 +357,14 @@ if ($BashExe) {
         $BashDis = (& $BashExe $BashAuditShPath --target $BashPosPath --json --disable GDPR-01,GDPR-02,GDPR-03,GDPR-04 2>&1) | ConvertFrom-Json
         $DisDiff = Compare-Object (& $RecordKeys $DisJson) (& $RecordKeys $BashDis) -CaseSensitive
         Report-Assert "--disable and --uri-prefix parity: identical JSON and SARIF" ($null -eq $PrefixDiff -and $null -eq $DisDiff)
+
+        $BashRi = (& $BashExe $BashAuditShPath --target $BashPosPath --json --respect-ignore 2>&1) | ConvertFrom-Json
+        $BashRi = @($BashRi)
+        $BashEx = (& $BashExe $BashAuditShPath --target $BashPosPath --json --exclude '*sam?le.dart' 2>&1) | ConvertFrom-Json
+        $BashEx = @($BashEx)
+        $RiParity = Compare-Object (& $RecordKeys $RiJson) (& $RecordKeys $BashRi) -CaseSensitive
+        $ExParity = Compare-Object (& $RecordKeys $ExJson) (& $RecordKeys $BashEx) -CaseSensitive
+        Report-Assert "--respect-ignore and --exclude parity: identical JSON" ($RiJson.Count -gt 0 -and $ExJson.Count -gt 0 -and $null -eq $RiParity -and $null -eq $ExParity) "respect-ignore: $($RiParity | Out-String) exclude: $($ExParity | Out-String)"
     } catch {
         Report-Assert "Bash JSON output parsing" $false $_.Exception.Message
     }

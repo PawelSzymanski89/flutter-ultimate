@@ -5,14 +5,19 @@
 # ==============================================================================
 set -euo pipefail
 
-SCRIPT_VERSION="1.9.0"
+SCRIPT_VERSION="1.10.0"
 
 # usage [code]: --help prints to stdout and exits 0; CLI errors print to stderr and exit 2.
 usage() {
   local code="${1:-2}"
-  local text="Usage: $0 [--target <dir>] [--json | --sarif] [--fail-on CRITICAL|HIGH|MEDIUM|LOW] [--strict] [--disable ID[,ID...]] [--uri-prefix <dir>]
-  --disable     leave these rule IDs (e.g. P27,GDPR-01) out of every output format and the exit code
-  --uri-prefix  prepend <dir> to every SARIF artifactLocation.uri (use when --target is a repository subdirectory)"
+  local text="Usage: $0 [--target <dir>] [--json | --sarif] [--fail-on CRITICAL|HIGH|MEDIUM|LOW] [--strict] [--disable ID[,ID...]] [--uri-prefix <dir>] [--exclude <glob[,glob...]>] [--respect-ignore]
+  --disable         leave these rule IDs (e.g. P27,GDPR-01) out of every output format and the exit code
+  --uri-prefix      prepend <dir> to every SARIF artifactLocation.uri (use when --target is a repository subdirectory)
+  --exclude         do not scan Dart files whose path relative to --target matches a glob ('*' any characters
+                    including '/', '?' one character), e.g. 'lib/generated/*,*.gr.dart'; it does not apply to
+                    the configuration rules: turn GDPR-* and LINT-* off with --disable
+  --respect-ignore  leave out K01 where the code carries the analyzer's '// ignore: use_build_context_synchronously'
+                    (line above, or any line of the reported statement) or '// ignore_for_file:' with that lint"
   if (( code == 0 )); then
     echo "$text"
   else
@@ -28,6 +33,8 @@ STRICT_MODE=false
 FAIL_ON="CRITICAL"
 DISABLED=""
 URI_PREFIX=""
+EXCLUDE=""
+RESPECT_IGNORE=false
 KNOWN_RULES=" K01 W01 W03 W05 W06 W14 W21 P03 P07 P12 P19 P21 P26 P27 P32 LINT-01 LINT-02 GDPR-01 GDPR-02 GDPR-03 GDPR-04 "
 
 while [[ $# -gt 0 ]]; do
@@ -76,6 +83,18 @@ while [[ $# -gt 0 ]]; do
       URI_PREFIX=$(printf '%s' "$2" | sed -E 's#\\#/#g; s#/+#/#g; s#^\./##; s#/$##')
       shift 2
       ;;
+    --exclude)
+      if [[ $# -lt 2 || -z "$2" || "$2" == -* || "$2" == ,* || "$2" == *, || "$2" == *,,* ]]; then
+        echo "Error: --exclude requires a comma-separated list of non-empty glob patterns" >&2
+        usage
+      fi
+      EXCLUDE+=",$2"
+      shift 2
+      ;;
+    --respect-ignore)
+      RESPECT_IGNORE=true
+      shift
+      ;;
     -h|--help)
       usage 0
       ;;
@@ -108,6 +127,7 @@ for d in "${disabled_arr[@]+"${disabled_arr[@]}"}"; do
   fi
 done
 DISABLED="${DISABLED},"
+IFS=',' read -r -a exclude_arr <<< "${EXCLUDE#,}"
 
 if [[ ! -d "$TARGET_PATH" ]]; then
   echo "Error: Target directory '$TARGET_PATH' does not exist" >&2
@@ -157,6 +177,23 @@ is_suppressed() {
   return 1
 }
 
+# --respect-ignore: the analyzer's "// ignore: use_build_context_synchronously" on the line above the reported
+# line, or on any line of the reported statement (up to the first line ending in ";", at most 20 lines).
+re_lint_ignore='//[[:space:]]*ignore:(.*[^A-Za-z0-9_])?use_build_context_synchronously([^A-Za-z0-9_]|$)'
+re_lint_ignore_file='//[[:space:]]*ignore_for_file:(.*[^A-Za-z0-9_])?use_build_context_synchronously([^A-Za-z0-9_]|$)'
+re_stmt_end=';[[:space:]]*(//.*)?$'
+lint_ignored() {
+  local n="$1" k
+  [[ "$RESPECT_IGNORE" = true ]] || return 1
+  [[ "$file_lint_ignored" = true ]] && return 0
+  (( n > 1 )) && [[ "${lines[$((n - 2))]}" =~ $re_lint_ignore ]] && return 0
+  for ((k=n-1; k<total_lines && k<n+19; k++)); do
+    [[ "${lines[$k]}" =~ $re_lint_ignore ]] && return 0
+    [[ "${lines[$k]}" =~ $re_stmt_end ]] && break
+  done
+  return 1
+}
+
 # --- Disposal helpers (used by the W01/W03/W06/W14 pass; globals set per State class) ---
 # A variable is State-owned when it is initialised at field level or declared as a field.
 state_owned() {
@@ -198,6 +235,12 @@ while IFS= read -r file; do
      [[ "$file" =~ \.(g|freezed)\.dart$ ]]; then
     continue
   fi
+  excluded=false
+  for pat in "${exclude_arr[@]+"${exclude_arr[@]}"}"; do
+    # shellcheck disable=SC2053 # unquoted on purpose: glob match, '*' also matches '/'
+    [[ "$rel_file" == $pat ]] && excluded=true
+  done
+  [[ "$excluded" = true ]] && continue
 
   lines=()
   while IFS= read -r l || [[ -n "$l" ]]; do
@@ -205,6 +248,10 @@ while IFS= read -r file; do
   done < "$file"
   total_lines=${#lines[@]}
   file_content=$(cat "$file")
+  file_lint_ignored=false
+  if [[ "$RESPECT_IGNORE" = true ]] && grep -qE "$re_lint_ignore_file" "$file"; then
+    file_lint_ignored=true
+  fi
 
   # Brace depth before/after every line (comment-only lines ignored); shared by K01 and the W pass
   depth_before=()
@@ -396,7 +443,7 @@ while IFS= read -r file; do
         fi
 
         if [[ -n "$danger_op" && "$guarded" = false && "$in_mounted_if" = false && "$line_guarded" = false ]]; then
-          if ! is_suppressed "$f_line_num" "K01"; then
+          if ! is_suppressed "$f_line_num" "K01" && ! lint_ignored "$f_line_num"; then
             add_finding "$file" "$f_line_num" "CRITICAL" "K01" "BuildContext ($danger_op) used after an await in the same function with no mounted guard in between (static heuristic: scans this function body only)."
           fi
           break

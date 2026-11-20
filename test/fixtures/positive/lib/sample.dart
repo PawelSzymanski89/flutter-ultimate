@@ -320,3 +320,51 @@ class _RiverpodFormWidgetState extends ConsumerState<RiverpodFormWidget> {
   @override
   Widget build(BuildContext context) => TextField(controller: _name);
 }
+
+// K01 (1.10.0): each case below is reported by default; with --respect-ignore the four cases that carry
+// the analyzer's use_build_context_synchronously ignore are left out, the other lint's ignore is not.
+class LintIgnoreWidget extends StatefulWidget {
+  const LintIgnoreWidget({super.key});
+
+  @override
+  State<LintIgnoreWidget> createState() => _LintIgnoreWidgetState();
+}
+
+class _LintIgnoreWidgetState extends State<LintIgnoreWidget> {
+  String? pin;
+
+  Future<void> ignoreAbove() async {
+    await Future<void>.value();
+    // ignore: use_build_context_synchronously
+    Navigator.pop(context);
+  }
+
+  Future<void> ignoreInList() async {
+    await Future<void>.value();
+    // ignore: unawaited_futures, use_build_context_synchronously
+    Navigator.pop(context);
+  }
+
+  Future<void> ignoreAtLineEnd() async {
+    await Future<void>.value();
+    Navigator.pop(context); // ignore: use_build_context_synchronously
+  }
+
+  Future<void> ignoreInStatement() async {
+    await Future<void>.delayed(const Duration(milliseconds: 500));
+
+    pin = await showDialog<String>(
+      context: Routerino.context, // ignore: use_build_context_synchronously
+      builder: (_) => const SizedBox(),
+    );
+  }
+
+  Future<void> otherLintIgnored() async {
+    await Future<void>.value();
+    // ignore: unused_local_variable
+    Navigator.pop(context);
+  }
+
+  @override
+  Widget build(BuildContext context) => const SizedBox.shrink();
+}

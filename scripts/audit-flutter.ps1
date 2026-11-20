@@ -24,6 +24,15 @@
 
 .PARAMETER UriPrefix
     Directory prepended to every SARIF artifactLocation.uri (use when -Target is a repository subdirectory).
+
+.PARAMETER Exclude
+    Glob patterns (comma-separated, e.g. 'lib/generated/*,*.gr.dart'); Dart files whose path relative to -Target
+    (forward slashes) matches one are not scanned. '*' matches any characters including '/', '?' one character.
+    It does not apply to the configuration rules: turn GDPR-* and LINT-* off with -Disable.
+
+.PARAMETER RespectIgnore
+    Leave out K01 where the code carries the analyzer's '// ignore: use_build_context_synchronously' (line above,
+    or any line of the reported statement) or '// ignore_for_file:' with that lint.
 #>
 [CmdletBinding()]
 param(
@@ -34,11 +43,13 @@ param(
     [switch]$Strict,
     [string]$FailOn = "CRITICAL",
     [string[]]$Disable = @(),
-    [string]$UriPrefix = ""
+    [string]$UriPrefix = "",
+    [string[]]$Exclude = @(),
+    [switch]$RespectIgnore
 )
 
 $ErrorActionPreference = "Stop"
-$ScriptVersion = "1.9.0"
+$ScriptVersion = "1.10.0"
 $KnownRules = @("K01","W01","W03","W05","W06","W14","W21","P03","P07","P12","P19","P21","P26","P27","P32","LINT-01","LINT-02","GDPR-01","GDPR-02","GDPR-03","GDPR-04")
 if (@("CRITICAL","HIGH","MEDIUM","LOW") -notcontains $FailOn) {
     [Console]::Error.WriteLine("Error: -FailOn requires one of CRITICAL, HIGH, MEDIUM, LOW")
@@ -51,6 +62,13 @@ foreach ($d in $DisabledRules) {
         exit 2
     }
 }
+$ExcludePatterns = @($Exclude | ForEach-Object { $_ -split "," })
+if ($PSBoundParameters.ContainsKey("Exclude") -and ($ExcludePatterns.Count -eq 0 -or @($ExcludePatterns | Where-Object { $_ -eq "" }).Count -gt 0)) {
+    [Console]::Error.WriteLine("Error: -Exclude requires a comma-separated list of non-empty glob patterns")
+    exit 2
+}
+# Glob -> regex: '*' any characters including '/', '?' one character, everything else literal
+$ExcludeRegexes = @($ExcludePatterns | ForEach-Object { "^" + ([regex]::Escape($_) -replace "\\\*", ".*" -replace "\\\?", ".") + "$" })
 $UriPrefix = (($UriPrefix -replace "\\", "/") -replace "/+", "/") -replace "^\./", "" -replace "/$", ""
 if ($Json -and $Sarif) {
     [Console]::Error.WriteLine("Error: -Json and -Sarif are mutually exclusive")
@@ -91,7 +109,9 @@ function Add-Finding {
 # 1. Scan Dart Files for Traps
 $DartFiles = Get-ChildItem -Path $ResolvedPath -Filter "*.dart" -Recurse -File | Where-Object {
     $Rel = $_.FullName.Substring($ResolvedPath.Length).TrimStart("\", "/")
-    $Rel -notmatch "(?:^|[\\/])(build|\.dart_tool|\.git)(?:[\\/]|`$)" -and $Rel -notmatch "^(test|integration_test)[\\/]" -and $_.Name -notmatch "\.(g|freezed)\.dart`$"
+    $RelSlash = $Rel -replace "\\", "/"
+    $Rel -notmatch "(?:^|[\\/])(build|\.dart_tool|\.git)(?:[\\/]|`$)" -and $Rel -notmatch "^(test|integration_test)[\\/]" -and $_.Name -notmatch "\.(g|freezed)\.dart`$" -and
+        @($ExcludeRegexes | Where-Object { $RelSlash -cmatch $_ }).Count -eq 0
 }
 
 foreach ($FileItem in $DartFiles) {
@@ -117,6 +137,22 @@ foreach ($FileItem in $DartFiles) {
         if ($LineNum -gt 1) {
             $Prev = $Lines[$LineNum - 2]
             if ($Prev -match "//\s*flutter-ultimate:ignore\s+$Trap") { return $true }
+        }
+        return $false
+    }
+
+    # -RespectIgnore: the analyzer's "// ignore: use_build_context_synchronously" on the line above the reported
+    # line, or on any line of the reported statement (up to the first line ending in ";", at most 20 lines).
+    $ReLintIgnore = "//\s*ignore:(?:.*[^A-Za-z0-9_])?use_build_context_synchronously(?:[^A-Za-z0-9_]|$)"
+    $FileLintIgnored = $RespectIgnore -and @($Lines | Where-Object { $_ -cmatch "//\s*ignore_for_file:(?:.*[^A-Za-z0-9_])?use_build_context_synchronously(?:[^A-Za-z0-9_]|$)" }).Count -gt 0
+    $IsLintIgnored = {
+        param($LineNum)
+        if (-not $RespectIgnore) { return $false }
+        if ($FileLintIgnored) { return $true }
+        if ($LineNum -gt 1 -and $Lines[$LineNum - 2] -cmatch $ReLintIgnore) { return $true }
+        for ($k = $LineNum - 1; $k -lt $TotalLines -and $k -lt $LineNum + 19; $k++) {
+            if ($Lines[$k] -cmatch $ReLintIgnore) { return $true }
+            if ($Lines[$k] -match ";\s*(?://.*)?$") { break }
         }
         return $false
     }
@@ -258,7 +294,7 @@ foreach ($FileItem in $DartFiles) {
                 }
 
                 if ($DangerOp -ne "" -and -not $Guarded -and -not $InMountedIf -and -not $LineGuarded) {
-                    if (-not (& $IsSuppressed $FLineNum "K01")) {
+                    if (-not (& $IsSuppressed $FLineNum "K01") -and -not (& $IsLintIgnored $FLineNum)) {
                         Add-Finding -File $FileItem.FullName -Line $FLineNum -Severity "CRITICAL" -TrapId "K01" `
                             -Message "BuildContext ($DangerOp) used after an await in the same function with no mounted guard in between (static heuristic: scans this function body only)."
                     }

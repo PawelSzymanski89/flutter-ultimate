@@ -282,6 +282,31 @@ dis_count=$(printf '%s' "$dis_output" | grep -c '"trapId"' || true)
 report_assert "--disable GDPR-01,GDPR-02,GDPR-03,GDPR-04 removes every GDPR-* finding and nothing else" $(( dis_gdpr == 0 && dis_count == EXPECTED_COUNT - 4 ? 1 : 0 )) "GDPR: $dis_gdpr, total: $dis_count"
 report_assert "--disable with an unknown rule ID exits with code 2" $(( dis_unknown_exit == 2 ? 1 : 0 )) "exit=$dis_unknown_exit"
 
+# --respect-ignore drops exactly the K01 records under "// ignore[_for_file]: use_build_context_synchronously";
+# --exclude drops exactly the records of the matched file. Both compared with expected.json record by record.
+# shellcheck disable=SC2016
+FLAG_JS="$NORM_JS"'
+  const exp = norm(fs.readFileSync(process.argv[1], "utf8")), got = norm(fs.readFileSync(process.argv[2], "utf8"));
+  const gone = JSON.parse(process.argv[3]);
+  const want = exp.filter(x => !gone.some(g => x.includes(g)));
+  if (want.length !== exp.length - Number(process.argv[4]) || JSON.stringify(want) !== JSON.stringify(got)) { console.error("want " + want.length + ", got " + got.length + "\n" + got.filter(x => !want.includes(x)).join("\n")); process.exit(1); }
+'
+set +e
+ri_output=$("$AUDIT_SH" --target "$POS_DIR" --json --respect-ignore 2>&1)
+ri_check=$(node -e "$FLAG_JS" "$EXPECTED_JSON" "$(as_file ri.json "$ri_output")" '["\"K01\",\"lib/lint_ignore_file.dart\",15,","\"K01\",\"lib/sample.dart\",339,","\"K01\",\"lib/sample.dart\",345,","\"K01\",\"lib/sample.dart\",350,","\"K01\",\"lib/sample.dart\",356,"]' 5 2>&1)
+ri_exit=$?
+ex_output=$("$AUDIT_SH" --target "$POS_DIR" --json --exclude '*sam?le.dart' 2>&1)
+ex_check=$(node -e "$FLAG_JS" "$EXPECTED_JSON" "$(as_file ex.json "$ex_output")" '["\"lib/sample.dart\""]' "$(grep -c '"file":"lib/sample.dart"' "$EXPECTED_JSON")" 2>&1)
+ex_exit=$?
+"$AUDIT_SH" --target "$POS_DIR" --json --exclude '' >/dev/null 2>&1
+ex_empty_exit=$?
+"$AUDIT_SH" --target "$POS_DIR" --json --exclude 'lib/x.dart,' >/dev/null 2>&1
+ex_trailing_exit=$?
+set -e
+report_assert "--respect-ignore removes the 5 K01 records under use_build_context_synchronously ignores (line above, list, line end, statement, file) and nothing else" $(( ri_exit == 0 ? 1 : 0 )) "$ri_check"
+report_assert "--exclude '*sam?le.dart' removes every lib/sample.dart record and nothing else" $(( ex_exit == 0 ? 1 : 0 )) "$ex_check"
+report_assert "--exclude with an empty pattern exits with code 2" $(( ex_empty_exit == 2 && ex_trailing_exit == 2 ? 1 : 0 )) "exit=$ex_empty_exit / $ex_trailing_exit"
+
 # 4. Test Single-Finding Contract & Strict Mode
 printf '\n%b[4/6] Testing Single-Finding JSON Array Contract & Strict Mode...%b\n' "$CYAN" "$NC"
 SINGLE_DIR="$PROJECT_ROOT/test/fixtures/single"
@@ -515,6 +540,21 @@ if [[ -n "$PWSH_CMD" ]]; then
   diff_flags_exit=$?
   set -e
   report_assert "--disable and --uri-prefix parity: identical JSON and SARIF" $(( diff_flags_exit == 0 ? 1 : 0 )) "$diff_flags"
+
+  set +e
+  ps_ri=$("$PWSH_CMD" -NoProfile -ExecutionPolicy Bypass -File "$AUDIT_PS1" -Target "$POS_DIR" -Json -RespectIgnore 2>&1)
+  ps_ex=$("$PWSH_CMD" -NoProfile -ExecutionPolicy Bypass -File "$AUDIT_PS1" -Target "$POS_DIR" -Json -Exclude '*sam?le.dart' 2>&1)
+  "$PWSH_CMD" -NoProfile -ExecutionPolicy Bypass -File "$AUDIT_PS1" -Target "$POS_DIR" -Json -Exclude 'lib/x.dart,' >/dev/null 2>&1
+  ps_ex_empty_exit=$?
+  # shellcheck disable=SC2016
+  diff_flags2=$(node -e '
+    const recs = p => JSON.parse(require("fs").readFileSync(p, "utf8")).map(r => JSON.stringify([r.severity, r.trapId, String(r.file).replace(/\\/g, "/"), Number(r.line), r.message])).sort().join("\n");
+    if (recs(process.argv[1]) !== recs(process.argv[2])) { console.error("--respect-ignore JSON differs"); process.exit(1); }
+    if (recs(process.argv[3]) !== recs(process.argv[4])) { console.error("--exclude JSON differs"); process.exit(1); }
+  ' "$TMP_DIR/ri.json" "$(as_file ps_ri.json "$ps_ri")" "$TMP_DIR/ex.json" "$(as_file ps_ex.json "$ps_ex")" 2>&1)
+  diff_flags2_exit=$?
+  set -e
+  report_assert "--respect-ignore and --exclude parity: identical JSON; -Exclude with an empty pattern exits with code 2" $(( diff_flags2_exit == 0 && ps_ex_empty_exit == 2 ? 1 : 0 )) "$diff_flags2 exit=$ps_ex_empty_exit"
 else
   if [[ "${FU_REQUIRE_PWSH:-}" == "1" ]]; then
     report_assert "PowerShell available for the parity assertions (FU_REQUIRE_PWSH=1)" 0 "Neither pwsh nor powershell.exe found on PATH"

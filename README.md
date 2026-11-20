@@ -142,6 +142,7 @@ The statusline needs no `node`. Claude Code accepts one statusLine command; to k
 - **W01 / W03 / W06 / W14 / W05 / W21** read classes that extend `State<...>` or Riverpod's `ConsumerState<...>`; other bases (`HookState`, custom `State` subclasses) are not scanned. A release is matched as `x.dispose()`, `x?.dispose()` or `x!.dispose()` (same for `cancel()` / `close()`).
 - **W01 / W03 / W06 / W14** treat a resource as State-owned when it is initialised at field level or assigned to a declared field; locals inside methods are ignored (clean them up with `try/finally`). A release counts only inside `dispose()` or inside a method that `dispose()` calls directly. Not tracked: anonymous `Timer(...)` / `.listen(...)` without assignment, tear-offs (`disposables.add(_c.dispose)`), bulk loops, releases delegated to mixins or managers. Use `// flutter-ultimate:ignore W01 <reason>` for those.
 - **W05** reads only the body of `didChangeDependencies()`: a `?.cancel()`, `removeListener()`, `??=` or `== null` check on the same variable in that method, or a run-once flag (`if (!_done) { _done = true; ... }`), silences it. A guard that lives in a helper method is not seen. `addListener()` on a call result (`context.read<T>().addListener(...)`) is always reported, since the previous listener cannot be removed from a receiver that is not kept. **W21** counts `vsync: this` textually inside the `State` class, including a controller that is disposed and recreated (which also throws under `SingleTickerProviderStateMixin`).
+- **`--respect-ignore`** knows one pair only: `K01` and the analyzer's `use_build_context_synchronously`. Other `// ignore:` comments do not silence any rule; use `// flutter-ultimate:ignore <ID>` for those.
 - Treat findings as strong signals, not as proof. Verify CRITICAL findings in code review and performance findings with Flutter DevTools.
 
 ### Active Detectors (21 Rules)
@@ -180,6 +181,8 @@ Exit codes: `0` nothing at or above the threshold, `1` a finding at or above `--
 | `--strict` | `-Strict` | Exit `1` on any finding. |
 | `--disable <ID[,ID...]>` | `-Disable <ID[,ID...]>` | Leave these rules (any ID from the table above, including `GDPR-*` and `LINT-*`) out of the text, JSON and SARIF output and out of the exit code. An unknown ID exits `2`. |
 | `--uri-prefix <dir>` | `-UriPrefix <dir>` | Prepend `<dir>/` to every SARIF `artifactLocation.uri` (forward slashes, no double slashes). Use it when `--target` is a subdirectory of the repository, since code scanning resolves paths from the repository root. |
+| `--exclude <glob[,glob...]>` | `-Exclude <glob[,glob...]>` | Do not scan Dart files whose path relative to `--target` (forward slashes) matches a pattern: `*` matches any characters including `/`, `?` one character. Applies to Dart files only; turn `GDPR-*` and `LINT-*` off with `--disable`. An empty pattern exits `2`. |
+| `--respect-ignore` | `-RespectIgnore` | Leave out `K01` where the authors silenced the analyzer's `use_build_context_synchronously` lint: `// ignore: ...` naming it on the line above the reported line, at the end of that line, or on any line of the same statement (up to the first line ending in `;`, at most 20 lines), or `// ignore_for_file: ...` naming it anywhere in the file. Off by default. |
 | `--help` | `Get-Help` | Usage. |
 
 ```bash
@@ -191,6 +194,8 @@ bash scripts/audit-flutter.sh --fail-on HIGH        # also block on HIGH pattern
 bash scripts/audit-flutter.sh --strict              # block on anything
 bash scripts/audit-flutter.sh --sarif > audit.sarif # GitHub code scanning (upload-sarif)
 bash scripts/audit-flutter.sh --disable P27,GDPR-01 # project decided to accept these
+bash scripts/audit-flutter.sh --exclude 'lib/generated/*,*.gr.dart'  # skip generated code
+bash scripts/audit-flutter.sh --respect-ignore      # honour // ignore: use_build_context_synchronously for K01
 ```
 
 ```powershell
@@ -199,6 +204,7 @@ powershell -ExecutionPolicy Bypass -File scripts/audit-flutter.ps1
 powershell -ExecutionPolicy Bypass -File scripts/audit-flutter.ps1 -Target path\to\app -Json -FailOn HIGH
 powershell -ExecutionPolicy Bypass -File scripts/audit-flutter.ps1 -Sarif > audit.sarif
 powershell -ExecutionPolicy Bypass -File scripts/audit-flutter.ps1 -Disable P27,GDPR-01
+powershell -ExecutionPolicy Bypass -File scripts/audit-flutter.ps1 -Exclude 'lib/generated/*,*.gr.dart' -RespectIgnore
 ```
 
 Suppress one finding with a comment on the line directly above it (for `K01`, above the line that uses the context, not above the `await`):
@@ -210,7 +216,39 @@ final globalStore = StreamController<GlobalEvent>.broadcast();
 
 ### CI and Pre-commit Examples
 
-Copy `scripts/audit-flutter.sh` into your app repository (it has no dependencies), then:
+The repository is also a GitHub Action. Pin a release tag; there is no moving `v1` tag, so you pin a specific version and update it yourself.
+
+```yaml
+# .github/workflows/flutter-ultimate.yml
+# Fails on CRITICAL (fail-on) and uploads the findings to the GitHub Security tab (code scanning is free
+# for public repositories; private repositories need GitHub Advanced Security).
+name: Flutter Ultimate Audit
+on: [push, pull_request]
+permissions:
+  security-events: write
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - id: audit
+        uses: PawelSzymanski89/flutter-ultimate@v1.10.0
+        with:
+          target: .                  # app/ in a monorepo, together with uri-prefix: app
+          fail-on: CRITICAL
+          exclude: 'lib/generated/*'
+          respect-ignore: 'true'
+          sarif-file: flutter-ultimate.sarif
+      - if: always() && steps.audit.outputs.sarif-file != ''
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: ${{ steps.audit.outputs.sarif-file }}
+```
+
+Inputs: `target` (default `.`), `fail-on` (default `CRITICAL`), `disable`, `exclude`, `respect-ignore` (`true` / `false`, default `false`), `uri-prefix`, `sarif-file` (when set, SARIF goes to that file and the step still fails according to `fail-on`; when empty, the text report goes to the log). Output: `sarif-file`.
+
+Without a dependency on this repository, copy `scripts/audit-flutter.sh` into your app repository (it has no dependencies), then:
 
 ```yaml
 # .github/workflows/flutter-ultimate.yml
@@ -261,7 +299,7 @@ bash scripts/audit-flutter.sh --target . >/dev/null || {
 
 ### Measured on Real Codebases
 
-Two public apps, re-run for 1.5.0 after the fixes the samples produced: see [docs/case-study.md](docs/case-study.md) for per-rule counts and the manual classification of K01 / W01 samples on [LocalSend](https://github.com/localsend/localsend) and [Immich mobile](https://github.com/immich-app/immich).
+Two public apps, re-run for 1.5.0 after the fixes the samples produced and again with 1.8.0, 1.9.0 and 1.10.0: see [docs/case-study.md](docs/case-study.md) for per-rule counts and the manual classification of K01 / W01 samples on [LocalSend](https://github.com/localsend/localsend) and [Immich mobile](https://github.com/immich-app/immich).
 
 A production Flutter app of 808 Dart files / 186k lines (not public) was first audited with the 1.4.0 scanner (585 findings, K01 138) and re-run with 1.5.0. On an Apple Silicon Mac the Bash scanner takes about 40 s. Numbers below are from the 1.5.0 scanner; the manual samples were read on the 1.4.0 output:
 
@@ -333,7 +371,13 @@ Long term
 
 ## Changelog
 
-### v1.9.0 (2026-11-19)
+### v1.10.0 (2026-11-20)
+- **New flags**: `--respect-ignore` (`-RespectIgnore`, off by default) leaves out `K01` where the code carries the analyzer's `// ignore: use_build_context_synchronously` (alone or in a comma-separated list) on the line above the reported line, at the end of that line or on any line of the same statement (up to the first line ending in `;`, at most 20 lines), or `// ignore_for_file:` with that lint. No other rule is mapped. `--exclude <glob[,glob...]>` (`-Exclude`) skips Dart files whose path relative to `--target` matches (`*` any characters including `/`, `?` one character); an empty pattern exits `2`.
+- **GitHub Action**: `action.yml` (composite, Bash) with inputs `target`, `fail-on`, `disable`, `exclude`, `respect-ignore`, `uri-prefix`, `sarif-file` and output `sarif-file`. Inputs reach the script only through environment variables. CI runs the action on Ubuntu and Windows against the negative fixture (passes), the positive fixture (fails) and with `sarif-file` (valid SARIF with results).
+- **Case study**: re-run of 1.8.0, 1.9.0 and 1.10.0 on the same LocalSend and Immich commits. On LocalSend `--respect-ignore` leaves 3 of 7 K01; W05 and W21 have 0 findings on both apps, so no precision measurement on public code.
+- **Tests**: the positive fixture has the four ignore shapes (line above, end of line, next line of a multi-line call, `ignore_for_file` in `lib/lint_ignore_file.dart`) and a control (`// ignore: unused_local_variable` keeps K01); both suites check that `--respect-ignore` removes exactly those records and `--exclude` exactly one file's records, with Bash <-> PowerShell parity.
+
+### v1.9.0 (2026-11-20)
 - **K01 reports more cases**: an `await` after `(` or `!` (`if (await confirm())`, `if (!await ok())`) is recognised, and code after the awaited expression on the same line is scanned; any `Navigator.<method>(...)` call counts, with an optional type argument (`pushReplacementNamed`, `pushNamedAndRemoveUntil`, `push<bool>`), instead of a fixed list of seven methods; an `else` branch is skipped only when it belongs to the block that holds the `await`, so `} else { Navigator.pop(context, r); }` of an `if` that starts after the `await` is reported. Positive and negative fixtures for each case.
 - **W01 / W03 / W05 / W06 / W14 / W21** also read Riverpod `ConsumerState<...>` classes. **W06 (and W01 / W03 / W14) report less**: a release written as `_timer!.cancel()` now counts.
 - **GDPR-01 / GDPR-02** accept `android:value` before `android:name` in the same `<meta-data>` tag; **GDPR-03 / GDPR-04** accept `<false />`. The negative fixture uses both forms.

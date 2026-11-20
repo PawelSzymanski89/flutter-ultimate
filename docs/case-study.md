@@ -53,7 +53,7 @@ All five classes are now handled in both scanners, each with a case in `test/fix
 
 ### Classification of the CRITICAL findings
 
-**LocalSend, K01, all 7 read:** 7 confirmed, 0 false. Each is a `setState`, `showDialog` or navigation call after an `await` with no mounted check between them. Four of the seven carry the authors' own `// ignore: use_build_context_synchronously` comment, so the team knows about them and accepted the risk; the scanner has no notion of that lint comment and reports them anyway. If you want the same behaviour from the audit, add `// flutter-ultimate:ignore K01 <reason>` above the line.
+**LocalSend, K01, all 7 read:** 7 confirmed, 0 false. Each is a `setState`, `showDialog` or navigation call after an `await` with no mounted check between them. Four of the seven carry the authors' own `// ignore: use_build_context_synchronously` comment, so the team knows about them and accepted the risk. Up to 1.9.0 the scanner reported them anyway; since 1.10.0 `--respect-ignore` leaves them out (see the re-run below). Without that flag, add `// flutter-ultimate:ignore K01 <reason>` above the line.
 
 **LocalSend, W01, all 3 read:** 3 confirmed. Three dialogs create a `TextEditingController` as a field and have no `dispose()` at all.
 
@@ -66,6 +66,38 @@ All five classes are now handled in both scanners, each with a case in `test/fix
 On these three codebases the CRITICAL rules, after the fixes, show no false positive in 20 manually read K01 findings and none in 9 W01 findings. That is a small sample, and it is biased: two of the apps are well-maintained open-source projects and the third is one team's style. Different styles will find new holes in a regex scanner; when they do, the procedure is the one used here: sample, classify by reading the code, add the pattern to the negative fixture, fix both scanners, re-run.
 
 The HIGH and lower rules were not sampled. P07 (`MediaQuery.of(context).size`) and P27 (`ClipRRect`) are pattern matches by design and should be read as "look here", not as defects; see the Limitations section in the README.
+
+## Re-run with 1.8.0, 1.9.0 and 1.10.0
+
+Date: 2026-11-20. Same commits as in the table at the top (LocalSend `app/` `92e133a`, Immich `mobile/` `8e34938`), Bash scanner from each release (`git show v1.8.0:scripts/audit-flutter.sh` for 1.8.0), Bash 5.2 on Linux. The PowerShell 1.10.0 scanner produced the identical list on LocalSend with and without `-RespectIgnore`.
+
+| Rule | LocalSend 1.8.0 | LocalSend 1.9.0 | LocalSend 1.10.0 `--respect-ignore` | Immich 1.8.0 | Immich 1.9.0 | Immich 1.10.0 `--respect-ignore` |
+| :--- | ---: | ---: | ---: | ---: | ---: | ---: |
+| K01 | 7 | 7 | 3 | 14 | 14 | 14 |
+| W01 | 3 | 3 | 3 | 0 | 3 | 3 |
+| W05 | 0 | 0 | 0 | 0 | 0 | 0 |
+| W21 | 0 | 0 | 0 | 0 | 0 | 0 |
+| P03 | 0 | 0 | 0 | 24 | 24 | 24 |
+| P07 | 5 | 5 | 5 | 11 | 11 | 11 |
+| P12 | 1 | 1 | 1 | 7 | 7 | 7 |
+| P19 | 1 | 1 | 1 | 19 | 19 | 19 |
+| P21 | 1 | 1 | 1 | 4 | 4 | 4 |
+| P26 | 1 | 1 | 1 | 3 | 3 | 3 |
+| P27 | 3 | 3 | 3 | 26 | 26 | 26 |
+| P32 | 0 | 0 | 0 | 11 | 11 | 11 |
+| Total | 22 | 22 | 18 | 119 | 122 | 122 |
+
+Without flags, 1.10.0 gives the same records (rule, file, line, message) as 1.9.0 on both apps.
+
+**LocalSend**: 1.8.0 and 1.9.0 give the same list of 22 findings.
+
+**Immich**: the only difference between 1.8.0 and 1.9.0 is three W01 findings in Riverpod `ConsumerState` classes, which 1.9.0 reads: `lib/presentation/widgets/asset_viewer/asset_details/description.widget.dart:23` (`FocusNode`) and `:29` (`TextEditingController`), `lib/presentation/widgets/people/person_edit_name_modal.widget.dart:26` (`TextEditingController`). Neither class has a `dispose()`; 3 of 3 confirmed.
+
+**K01 changes in 1.9.0** (`await` after `(` or `!`, any `Navigator` method, `else` branch of the block that holds the `await` only): the K01 list did not change on either app, no finding added and none lost.
+
+**W05 and W21** (added in 1.8.0) report 0 findings on both apps. These two rules therefore have no precision measurement on public code.
+
+**`--respect-ignore`**: `lib/` in LocalSend has 23 `// ignore: use_build_context_synchronously` comments, Immich `mobile/lib/` has 0. Four of the seven LocalSend K01 findings carry one: three on the line above (`lib/pages/receive_history_page.dart:216`, `lib/util/native/file_picker.dart:188`, `:238`) and one on the next line of a multi-line call (`lib/provider/network/send_provider.dart:280`). With the flag, 3 remain: `lib/widget/dialogs/favorite_edit_dialog.dart:228`, `lib/widget/dialogs/favorite_dialog.dart:54`, `lib/pages/web_share_page.dart:93`. Immich is unchanged.
 
 ## Reproduce
 

@@ -16,7 +16,7 @@ body:
     attributes:
       label: Scanner version
       description: SCRIPT_VERSION in scripts/audit-flutter.sh, $ScriptVersion in scripts/audit-flutter.ps1, or tool.driver.version in --sarif output.
-      placeholder: 1.9.0
+      placeholder: 1.10.0
     validations:
       required: true
   - type: textarea

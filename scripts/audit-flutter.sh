@@ -204,7 +204,7 @@ state_owned() {
 }
 # Methods of the class in which "var.action(" occurs (space separated).
 released_where() {
-  printf '%s' "$release_index" | tr '|' '\n' | { grep -E "^$1:$2:" || true; } | cut -d: -f3 | sort -u | tr '\n' ' '
+  printf '%s' "$release_index" | tr '|' '\n' | { grep -E "^$1:$2:" || true; } | cut -d: -f3 | LC_ALL=C sort -u | tr '\n' ' '
 }
 # A release is reachable when it sits in dispose() itself or in a method dispose() calls (one level).
 reachable_from_dispose() {
@@ -757,7 +757,8 @@ while IFS= read -r file; do
     done
   fi
 
-done < <(find "$TARGET_DIR" \( -name build -o -name .dart_tool -o -name .git \) -prune -o -type f -name "*.dart" -print 2>/dev/null || true)
+# Byte order on the path (same prefix, so same order as the path relative to --target); matches the PowerShell scanner's ordinal sort.
+done < <(find "$TARGET_DIR" \( -name build -o -name .dart_tool -o -name .git \) -prune -o -type f -name "*.dart" -print 2>/dev/null | LC_ALL=C sort || true)
 
 # 2. Check pubspec.yaml for Up-to-Date Linter Package
 PUBSPEC_PATH="$TARGET_DIR/pubspec.yaml"

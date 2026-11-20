@@ -172,6 +172,19 @@ try {
     $KeyDiff = Compare-Object $ExpectedKeys $ActualKeys -CaseSensitive
     Report-Assert "Positive fixture: $ExpectedCount findings equal to expected.json (severity, trapId, file, line, message)" ($ExpectedCount -gt 0 -and $ActualKeys.Count -eq $ExpectedCount -and $null -eq $KeyDiff) "Expected $ExpectedCount, got $($ActualKeys.Count); diff: $($KeyDiff | Out-String)"
 
+    # Dart files are scanned in ordinal order of the path relative to -Target, whatever order the file system lists them in.
+    # lib/Zeta.dart sorts before lib/alpha.dart only by code point; a case-insensitive or culture order reverses them.
+    $DartSeq = [System.Collections.Generic.List[string]]::new()
+    foreach ($r in @($PosJson)) {
+        $f = $r.file -replace '\\', '/'
+        if ($f.EndsWith(".dart") -and ($DartSeq.Count -eq 0 -or -not $DartSeq[$DartSeq.Count - 1].Equals($f))) { $DartSeq.Add($f) }
+    }
+    $OrdinalSeq = [string[]]@([System.Collections.Generic.HashSet[string]]::new([string[]]$DartSeq.ToArray(), [StringComparer]::Ordinal))
+    [Array]::Sort($OrdinalSeq, [StringComparer]::Ordinal)
+    $OrderOk = $DartSeq.Contains("lib/Zeta.dart") -and $DartSeq.Contains("lib/alpha.dart") -and $DartSeq.Count -eq $OrdinalSeq.Count
+    for ($i = 0; $OrderOk -and $i -lt $OrdinalSeq.Count; $i++) { $OrderOk = $DartSeq[$i].Equals($OrdinalSeq[$i]) }
+    Report-Assert "Positive fixture: Dart files appear in ordinal path order (lib/Zeta.dart before lib/alpha.dart)" $OrderOk "File order: $($DartSeq -join ' ')"
+
     # -Disable: listed rules leave every output and the exit code; unknown IDs are a CLI error
     $DisOutput = & $AuditPs1 -Target $PositiveDir -Json -Disable GDPR-01,GDPR-02,GDPR-03,GDPR-04 2>&1
     $DisJson = $DisOutput | ConvertFrom-Json

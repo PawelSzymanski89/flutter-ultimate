@@ -107,12 +107,16 @@ function Add-Finding {
 }
 
 # 1. Scan Dart Files for Traps
-$DartFiles = Get-ChildItem -Path $ResolvedPath -Filter "*.dart" -Recurse -File | Where-Object {
+$DartFiles = [System.IO.FileInfo[]]@(Get-ChildItem -Path $ResolvedPath -Filter "*.dart" -Recurse -File | Where-Object {
     $Rel = $_.FullName.Substring($ResolvedPath.Length).TrimStart("\", "/")
     $RelSlash = $Rel -replace "\\", "/"
     $Rel -notmatch "(?:^|[\\/])(build|\.dart_tool|\.git)(?:[\\/]|`$)" -and $Rel -notmatch "^(test|integration_test)[\\/]" -and $_.Name -notmatch "\.(g|freezed)\.dart`$" -and
         @($ExcludeRegexes | Where-Object { $RelSlash -cmatch $_ }).Count -eq 0
-}
+})
+# Ordinal order on the path relative to -Target with forward slashes, as the Bash scanner's LC_ALL=C sort.
+# Sort-Object would be culture-aware and case-insensitive.
+$DartKeys = [string[]]@($DartFiles | ForEach-Object { $_.FullName.Substring($ResolvedPath.Length).TrimStart("\", "/") -replace "\\", "/" })
+[Array]::Sort($DartKeys, $DartFiles, [StringComparer]::Ordinal)
 
 foreach ($FileItem in $DartFiles) {
     $Content = Get-Content $FileItem.FullName -Raw -Encoding UTF8
@@ -414,7 +418,7 @@ foreach ($FileItem in $DartFiles) {
                 # Pass 1: field declarations, calls made from dispose(), and every release call with its enclosing method
                 $FieldDecls = @{}
                 $DisposeCalls = @{}
-                $ReleaseIndex = @{}   # "var:action" -> hashtable of method names
+                $ReleaseIndex = @{}   # "var:action" -> set of method names
                 $CurMethod = ""
                 for ($m = $StateClassStart + 1; $m -le $StateClassEnd; $m++) {
                     $MLine = $Lines[$m]
@@ -428,8 +432,8 @@ foreach ($FileItem in $DartFiles) {
                     }
                     foreach ($rm in [regex]::Matches($MLine, "([A-Za-z_][A-Za-z0-9_]*)(?:\?\.|!\.|\.)(dispose|cancel|close)\s*\(")) {
                         $key = $rm.Groups[1].Value + ":" + $rm.Groups[2].Value
-                        if (-not $ReleaseIndex.ContainsKey($key)) { $ReleaseIndex[$key] = @{} }
-                        $ReleaseIndex[$key][$CurMethod] = $true
+                        if (-not $ReleaseIndex.ContainsKey($key)) { $ReleaseIndex[$key] = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal) }
+                        $null = $ReleaseIndex[$key].Add($CurMethod)
                     }
                 }
 
@@ -441,7 +445,11 @@ foreach ($FileItem in $DartFiles) {
                 $ReleasedWhere = {
                     param($VarName, $Action)
                     $key = "${VarName}:${Action}"
-                    if ($ReleaseIndex.ContainsKey($key)) { return @($ReleaseIndex[$key].Keys | Sort-Object) }
+                    if ($ReleaseIndex.ContainsKey($key)) {
+                        $Methods = [string[]]@($ReleaseIndex[$key])
+                        [Array]::Sort($Methods, [StringComparer]::Ordinal)
+                        return $Methods
+                    }
                     return @()
                 }
                 $ReachableFromDispose = {

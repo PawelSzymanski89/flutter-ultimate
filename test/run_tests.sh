@@ -271,6 +271,20 @@ expected_exit=$?
 set -e
 report_assert "Positive fixture: $EXPECTED_COUNT findings equal to expected.json (severity, trapId, file, line, message)" $(( expected_exit == 0 ? 1 : 0 )) "$expected_check"
 
+# Dart files are scanned in ordinal order of the path relative to --target, whatever order the file system lists them in.
+# lib/Zeta.dart sorts before lib/alpha.dart only by code point; a case-insensitive or locale order reverses them.
+set +e
+# shellcheck disable=SC2016
+order_check=$(node -e '
+  const files = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).map(r => String(r.file).replace(/\\/g, "/")).filter(f => f.endsWith(".dart"));
+  const seq = files.filter((f, i) => i === 0 || f !== files[i - 1]);
+  const ordinal = [...new Set(seq)].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+  if (!seq.includes("lib/Zeta.dart") || !seq.includes("lib/alpha.dart") || JSON.stringify(seq) !== JSON.stringify(ordinal)) { console.error("file order: " + seq.join(" ")); process.exit(1); }
+' "$TMP_DIR/pos.json" 2>&1)
+order_exit=$?
+set -e
+report_assert "Positive fixture: Dart files appear in ordinal path order (lib/Zeta.dart before lib/alpha.dart)" $(( order_exit == 0 ? 1 : 0 )) "$order_check"
+
 # --disable: listed rules leave every output and the exit code; unknown IDs are a CLI error
 set +e
 dis_output=$("$AUDIT_SH" --target "$POS_DIR" --json --disable GDPR-01,GDPR-02,GDPR-03,GDPR-04 2>&1)

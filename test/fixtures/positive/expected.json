@@ -1,4 +1,6 @@
 [
+  {"severity":"LOW","trapId":"P27","file":"lib/Zeta.dart","line":10,"message":"ClipRRect introduces clipping overhead. Prefer BoxDecoration(borderRadius: ...) where clipping child content is not required."},
+  {"severity":"HIGH","trapId":"P21","file":"lib/alpha.dart","line":10,"message":"IntrinsicHeight forces speculative layout passes. Profile layout cost or use bounded layout constraints."},
   {"severity":"CRITICAL","trapId":"K01","file":"lib/lint_ignore_file.dart","line":15,"message":"BuildContext (Navigator) used after an await in the same function with no mounted guard in between (static heuristic: scans this function body only)."},
   {"severity":"LOW","trapId":"P03","file":"lib/sample.dart","line":25,"message":"Helper '_buildHeader()' rebuilds with parent. Consider extracting a const StatelessWidget for isolated rebuild boundaries."},
   {"severity":"CRITICAL","trapId":"K01","file":"lib/sample.dart","line":32,"message":"BuildContext (Navigator) used after an await in the same function with no mounted guard in between (static heuristic: scans this function body only)."},

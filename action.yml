@@ -1,0 +1,73 @@
+name: Flutter Ultimate Audit
+description: Static audit of a Flutter project (BuildContext after await, resource disposal, rebuild and layout patterns, native privacy flags) with text or SARIF output.
+author: Pawel Szymanski
+branding:
+  icon: shield
+  color: blue
+
+inputs:
+  target:
+    description: Flutter project root to scan, relative to the workspace.
+    required: false
+    default: .
+  fail-on:
+    description: Fail the step on a finding at or above this severity (CRITICAL, HIGH, MEDIUM, LOW).
+    required: false
+    default: CRITICAL
+  disable:
+    description: Comma-separated rule IDs to leave out of the output and the exit code (e.g. P27,GDPR-01).
+    required: false
+    default: ''
+  exclude:
+    description: Comma-separated globs of Dart files to skip, relative to target ('*' any characters including '/', '?' one character).
+    required: false
+    default: ''
+  respect-ignore:
+    description: "true to leave out K01 where the code carries '// ignore: use_build_context_synchronously'."
+    required: false
+    default: 'false'
+  uri-prefix:
+    description: Directory prepended to every SARIF artifactLocation.uri (use when target is a subdirectory).
+    required: false
+    default: ''
+  sarif-file:
+    description: Write SARIF 2.1.0 to this file instead of printing text. The step still fails according to fail-on.
+    required: false
+    default: ''
+
+outputs:
+  sarif-file:
+    description: Path of the SARIF file (empty when sarif-file was not set).
+    value: ${{ steps.audit.outputs.sarif-file }}
+
+runs:
+  using: composite
+  steps:
+    - id: audit
+      shell: bash
+      env:
+        FU_TARGET: ${{ inputs.target }}
+        FU_FAIL_ON: ${{ inputs.fail-on }}
+        FU_DISABLE: ${{ inputs.disable }}
+        FU_EXCLUDE: ${{ inputs.exclude }}
+        FU_RESPECT_IGNORE: ${{ inputs.respect-ignore }}
+        FU_URI_PREFIX: ${{ inputs.uri-prefix }}
+        FU_SARIF_FILE: ${{ inputs.sarif-file }}
+      run: |
+        args=(--target "$FU_TARGET" --fail-on "$FU_FAIL_ON")
+        if [[ -n "$FU_DISABLE" ]]; then args+=(--disable "$FU_DISABLE"); fi
+        if [[ -n "$FU_EXCLUDE" ]]; then args+=(--exclude "$FU_EXCLUDE"); fi
+        if [[ -n "$FU_URI_PREFIX" ]]; then args+=(--uri-prefix "$FU_URI_PREFIX"); fi
+        case "$FU_RESPECT_IGNORE" in
+          true) args+=(--respect-ignore) ;;
+          false) ;;
+          *) echo "::error::respect-ignore must be true or false"; exit 2 ;;
+        esac
+        if [[ -z "$FU_SARIF_FILE" ]]; then
+          bash "$GITHUB_ACTION_PATH/scripts/audit-flutter.sh" "${args[@]}"
+        else
+          status=0
+          bash "$GITHUB_ACTION_PATH/scripts/audit-flutter.sh" "${args[@]}" --sarif > "$FU_SARIF_FILE" || status=$?
+          echo "sarif-file=$FU_SARIF_FILE" >> "$GITHUB_OUTPUT"
+          exit "$status"
+        fi

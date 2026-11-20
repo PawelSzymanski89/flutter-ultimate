@@ -123,3 +123,58 @@ jobs:
           FU_REQUIRE_PWSH: 1
         run: |
           ./test/run_tests.sh
+
+  action:
+    name: Composite action on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    needs: [ shellcheck ]
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ ubuntu-latest, windows-latest ]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Negative fixture passes
+        uses: ./
+        with:
+          target: test/fixtures/negative
+
+      - name: Positive fixture fails
+        id: positive
+        continue-on-error: true
+        uses: ./
+        with:
+          target: test/fixtures/positive
+
+      - name: Check that the positive fixture failed
+        shell: bash
+        env:
+          OUTCOME: ${{ steps.positive.outcome }}
+        run: |
+          echo "outcome: $OUTCOME"
+          [ "$OUTCOME" = "failure" ]
+
+      - name: Positive fixture to a SARIF file
+        id: sarif
+        continue-on-error: true
+        uses: ./
+        with:
+          target: test/fixtures/positive
+          sarif-file: positive.sarif
+
+      - name: Check the SARIF file
+        shell: bash
+        env:
+          OUTCOME: ${{ steps.sarif.outcome }}
+          SARIF_FILE: ${{ steps.sarif.outputs.sarif-file }}
+        run: |
+          [ "$OUTCOME" = "failure" ]
+          [ "$SARIF_FILE" = "positive.sarif" ]
+          node -e '
+            const d = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+            if (!Array.isArray(d.runs[0].results) || d.runs[0].results.length === 0) { console.error("runs[0].results is empty"); process.exit(1); }
+            console.log("results:", d.runs[0].results.length);
+          ' "$SARIF_FILE"
